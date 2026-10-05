@@ -9,50 +9,67 @@ st.set_page_config(
     layout="wide"
 )
 
-# ── スマホで見やすくするためのCSSスタイルの適用 ──
+# ── スマホでも絶対に3列並びを維持する強制CSS ──
 st.markdown("""
     <style>
     h1 {
-        font-size: 1.8rem !important;
+        font-size: 1.6rem !important;
         word-break: break-all;
     }
     [data-testid="stDataFrame"] {
         width: 100% !important;
     }
-    div.stButton > button {
-        width: 100%;
-        border-radius: 8px;
-        font-weight: bold;
-        height: 48px;
+    
+    /* スマホで横並びカラムが縦1列に崩れるのを強制防止 */
+    div[data-testid="stHorizontalBlock"] {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        gap: 6px !important;
     }
-    /* ポップアップ風カードのスタイル */
+    div[data-testid="stHorizontalBlock"] > div {
+        flex: 1 1 0% !important;
+        min-width: 0 !important;
+    }
+    
+    /* テンキーボタンのデザイン（スマホで押しやすい高さと角丸） */
+    div[data-testid="stHorizontalBlock"] button {
+        width: 100% !important;
+        height: 52px !important;
+        font-size: 1.25rem !important;
+        font-weight: bold !important;
+        border-radius: 8px !important;
+        padding: 0 !important;
+    }
+    
+    /* カードのスタイル */
     .vehicle-detail-card {
         background-color: #f8f9fa;
         border: 2px solid #1e88e5;
         border-radius: 12px;
-        padding: 18px;
+        padding: 16px;
         margin-top: 15px;
         margin-bottom: 20px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.08);
     }
     .card-title {
-        font-size: 1.5rem;
+        font-size: 1.35rem;
         font-weight: bold;
         color: #1e88e5;
-        margin-bottom: 12px;
+        margin-bottom: 8px;
         border-bottom: 2px solid #e0e0e0;
-        padding-bottom: 6px;
+        padding-bottom: 4px;
     }
     .card-row {
-        font-size: 1.1rem;
-        margin: 8px 0;
+        font-size: 1.05rem;
+        margin: 6px 0;
         color: #222;
     }
     .card-label {
         font-weight: bold;
         color: #555;
         display: inline-block;
-        width: 90px;
+        width: 85px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -69,7 +86,7 @@ if "scanned_shaban" not in st.session_state:
 if "scanned_detail" not in st.session_state:
     st.session_state.scanned_detail = ""
 
-# テンキーで押された文字を入力欄の生成前（最上部）で安全に反映
+# テンキーで押された文字を入力欄の描画前に安全に反映
 if st.session_state.pending_key is not None:
     if st.session_state.pending_key == "CLEAR":
         st.session_state.search_box_main = ""
@@ -140,7 +157,7 @@ def load_data():
 try:
     df_base = load_data()
 
-    # ── ヘルパー機能：タイトル ＆ ホームに戻るボタン ──
+    # ── ホームボタン ──
     col_title, col_home = st.columns([3, 1])
     with col_title:
         st.title("🚗 車両管理＆検索")
@@ -159,17 +176,17 @@ try:
     with tab1:
         st.write("車番の数字で素早く検索できます。")
 
-        # 入力ボックス（手入力もテンキー入力もここに確実に同期）
+        # 入力ボックス
         st.text_input(
             "🔍 車番を入力（例: 1, 8, 14 など）", 
             key="search_box_main"
         )
 
-        # テンキー操作（押すと即座に上の入力欄に文字が入る仕組み）
         def on_num_click(val):
             st.session_state.pending_key = val
             st.rerun()
 
+        # テンキー操作（スマホでも崩れない3列配置）
         with st.expander("🔢 テンキー入力を開く", expanded=True):
             r1c1, r1c2, r1c3 = st.columns(3)
             if r1c1.button("1", use_container_width=True): on_num_click("1")
@@ -188,10 +205,11 @@ try:
 
             r4c1, r4c2, r4c3 = st.columns(3)
             if r4c1.button("0", use_container_width=True): on_num_click("0")
-            if r4c2.button("🎤 音声入力", use_container_width=True): 
-                st.info("💡 スマホキーボードのマイクアイコンから直接音声入力できます！")
+            if r4c2.button("🎤", use_container_width=True): 
+                st.toast("キーボードのマイクから音声入力できます")
             if r4c3.button("クリア", use_container_width=True): on_num_click("CLEAR")
 
+            st.write("")
             if st.button("🔍 番号決定（検索実行）", use_container_width=True, type="primary"):
                 st.session_state.active_card_key = None
                 st.rerun()
@@ -218,7 +236,7 @@ try:
         display_cols = [c for c in ['会社名', '車番', '入力番号', '詳細', '備考', '風体'] if c in filtered_df.columns]
         display_df = filtered_df[display_cols].copy()
 
-        # チャート表用（同一会社の重複を空白化）
+        # チャート表用
         table_df = display_df.copy()
         if '会社名' in table_df.columns:
             table_df['会社名'] = table_df['会社名'].mask(table_df['会社名'] == table_df['会社名'].shift(), '')
@@ -228,7 +246,7 @@ try:
         else:
             st.write(f"全車両一覧: **{len(filtered_df)}** 行")
 
-        # ── ① チャート表（一覧表） ──
+        # ── ① チャート表 ──
         st.dataframe(table_df, use_container_width=True, hide_index=True)
 
         # ── ② 検索結果が出ている時：該当車両を押すとカード表示 ──
@@ -246,7 +264,6 @@ try:
                     st.session_state.active_card_key = idx
                     st.rerun()
 
-            # 選択された車両をカードで大きく表示
             current_active = st.session_state.get("active_card_key", None)
             if current_active is not None and current_active < len(filtered_df):
                 target_row = filtered_df.iloc[current_active]
@@ -262,7 +279,7 @@ try:
                 """
                 st.markdown(card_html, unsafe_allow_html=True)
 
-    # ── 【タブ2】 新規登録（会社を決めてからカード入力） ──
+    # ── 【タブ2】 新規登録 ──
     with tab2:
         st.subheader("➕ 新規車両の登録")
         
@@ -295,7 +312,7 @@ try:
                     else:
                         st.success(f"🎉 会社「{selected_target_comp}」に 車番「{new_shaban}」を登録しました！")
 
-    # ── 【タブ3】 編集・削除（決めてからカードで出す） ──
+    # ── 【タブ3】 編集・削除 ──
     with tab3:
         st.subheader("✏️ 車両情報の編集・削除")
         st.write("まず、編集したい車両を検索して決定してください。")
@@ -329,7 +346,7 @@ try:
                     if c1.form_submit_button("🔄 変更を保存", type="primary"):
                         st.success("✅ カードの内容で変更を保存しました！")
                     if c2.form_submit_button("🗑 この車両を削除"):
-                        st.warning("⚠️️ データを削除しました。")
+                        st.warning("⚠️ データを削除しました。")
             else:
                 st.info("該当する車両が見つかりませんでした。")
 

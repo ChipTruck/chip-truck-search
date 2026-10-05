@@ -33,13 +33,14 @@ try:
     df = load_data()
     target_col = df.columns[1] if len(df.columns) > 1 else df.columns[0]
     
-    # ── クイック絞り込み（サイドバー） ──
-    st.sidebar.header("🏢 クイック絞り込み")
+    # ── 会社名ごとの絞り込みセレクトボックス（画面上部に配置） ──
+    st.subheader("🏢 会社名で絞り込み")
     categories = ["すべて表示"] + list(df[target_col].unique())
-    selected_category = st.sidebar.selectbox("会社名・項目を選択してジャンプ", categories)
+    # ユーザーがパッと選んで一覧表示できるようにする
+    selected_category = st.selectbox("表示したい会社名を選択してください", categories)
 
     # 検索ボックス
-    search_query = st.text_input("🔍 キーワード検索", "")
+    search_query = st.text_input("🔍 キーワード検索（車両番号など）", "")
 
     # フィルタリング処理
     filtered_df = df

@@ -75,6 +75,13 @@ st.markdown("""
 FILE_PATH = "新_登録車両資料_連動版.xlsx"
 SHEET_NAME = "新_登録車両資料"
 
+# 文字列の表記ゆれ（全角半角コロン・空白）を統一する関数
+def normalize_text(text):
+    if not text:
+        return ""
+    t = str(text).replace("：", ":").replace(" ", "").replace(" ", "")
+    return t.strip()
+
 # データの初期ロード処理
 def load_raw_data():
     if not os.path.exists(FILE_PATH):
@@ -95,7 +102,6 @@ def load_raw_data():
         row_vals = [str(val).strip() for val in row.values if pd.notna(val) and str(val).strip() not in ["nan", "None"]]
         row_text = " ".join(row_vals)
         
-        # 会社行の判定
         if ":" in row_text or "：" in row_text:
             for val in row_vals:
                 if ":" in val or "：" in val:
@@ -138,7 +144,7 @@ def load_raw_data():
             
     return df
 
-# アプリ全体で共有するデータ（DataFrame）の初期化
+# アプリ全体で共有するデータの初期化
 if "app_df" not in st.session_state:
     st.session_state.app_df = load_raw_data()
 if "search_box_main" not in st.session_state:
@@ -151,8 +157,8 @@ if "scanned_shaban" not in st.session_state:
     st.session_state.scanned_shaban = ""
 if "scanned_detail" not in st.session_state:
     st.session_state.scanned_detail = ""
-if "save_success_msg" not in st.session_state:
-    st.session_state.save_success_msg = ""
+if "action_notice" not in st.session_state:
+    st.session_state.action_notice = ""
 
 # テンキー処理
 if st.session_state.pending_key is not None:
@@ -182,7 +188,6 @@ def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai)
     new_row_df = pd.DataFrame([new_data])
     df = pd.concat([df, new_row_df], ignore_index=True)
 
-    # 会社番号（00〜99）で綺麗に並べ替え
     def get_comp_code(val):
         m = re.match(r'^(\d{1,2})', str(val).strip())
         return int(m.group(1)) if m else 999
@@ -192,16 +197,16 @@ def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai)
     
     st.session_state.app_df = df
 
-    # Excelファイルにも追記保存
+    # Excelへの書き込み
     try:
         wb = openpyxl.load_workbook(FILE_PATH)
         ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
         
-        # 会社行が存在するか確認、なければ会社行＋データ行を追加
         comp_found = False
+        norm_target = normalize_text(company_str)
         for r in range(1, ws.max_row + 1):
-            v = str(ws.cell(row=r, column=1).value or "").strip()
-            if company_str == v or company_str.replace(":", "：") == v.replace(":", "："):
+            v = normalize_text(ws.cell(row=r, column=1).value)
+            if v == norm_target:
                 comp_found = True
                 break
         
@@ -228,6 +233,95 @@ def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai)
     except Exception:
         pass
 
+# 車両の完全削除関数（全角半角のブレを完全吸収して消去）
+def delete_vehicle_record(company_str, old_shaban, old_input_no):
+    df = st.session_state.app_df.copy()
+    
+    norm_c = normalize_text(company_str)
+    norm_s = normalize_text(old_shaban)
+    norm_inp = normalize_text(old_input_no)
+
+    # 画面上のデータから完全消去
+    drop_indices = []
+    for idx, r in df.iterrows():
+        r_c = normalize_text(r.get('会社名', ''))
+        r_s = normalize_text(r.get('車番', ''))
+        r_inp = normalize_text(r.get('入力番号', ''))
+
+        if (r_c == norm_c and r_s == norm_s) or (norm_inp and r_inp == norm_inp):
+            drop_indices.append(idx)
+
+    if drop_indices:
+        df = df.drop(index=drop_indices).reset_index(drop=True)
+        st.session_state.app_df = df
+
+    # Excelファイルからも完全消去
+    try:
+        wb = openpyxl.load_workbook(FILE_PATH)
+        ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
+        
+        current_comp = ""
+        rows_to_delete = []
+        for r in range(1, ws.max_row + 1):
+            c1 = normalize_text(ws.cell(row=r, column=1).value)
+            if ":" in c1:
+                current_comp = c1
+            c2 = normalize_text(ws.cell(row=r, column=2).value)
+            c3 = normalize_text(ws.cell(row=r, column=3).value)
+
+            if (current_comp == norm_c and c2 == norm_s) or (norm_inp and c3 == norm_inp):
+                rows_to_delete.append(r)
+        
+        # 下の行から順番に削除
+        for r in reversed(rows_to_delete):
+            ws.delete_rows(r)
+            
+        wb.save(FILE_PATH)
+    except Exception:
+        pass
+
+# 車両情報の更新関数
+def update_vehicle_record(old_company, old_shaban, old_input_no, new_comp, new_shaban, new_input_no, new_detail, new_remark, new_fuutai):
+    df = st.session_state.app_df.copy()
+    norm_c = normalize_text(old_company)
+    norm_s = normalize_text(old_shaban)
+    norm_inp = normalize_text(old_input_no)
+
+    for idx, r in df.iterrows():
+        if (normalize_text(r.get('会社名', '')) == norm_c and normalize_text(r.get('車番', '')) == norm_s) or (norm_inp and normalize_text(r.get('入力番号', '')) == norm_inp):
+            df.at[idx, '会社名'] = new_comp
+            df.at[idx, '車番'] = new_shaban
+            df.at[idx, '入力番号'] = new_input_no
+            df.at[idx, '詳細'] = new_detail
+            df.at[idx, '備考'] = new_remark
+            df.at[idx, '風体'] = new_fuutai
+            break
+            
+    st.session_state.app_df = df
+
+    try:
+        wb = openpyxl.load_workbook(FILE_PATH)
+        ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
+        
+        current_comp = ""
+        for r in range(1, ws.max_row + 1):
+            c1 = normalize_text(ws.cell(row=r, column=1).value)
+            if ":" in c1:
+                current_comp = c1
+            c2 = normalize_text(ws.cell(row=r, column=2).value)
+            c3 = normalize_text(ws.cell(row=r, column=3).value)
+
+            if (current_comp == norm_c and c2 == norm_s) or (norm_inp and c3 == norm_inp):
+                ws.cell(row=r, column=2, value=str(new_shaban))
+                ws.cell(row=r, column=3, value=str(new_input_no))
+                ws.cell(row=r, column=4, value=str(new_detail))
+                ws.cell(row=r, column=5, value=str(new_remark))
+                ws.cell(row=r, column=7, value=str(new_fuutai))
+                break
+        wb.save(FILE_PATH)
+    except Exception:
+        pass
+
 try:
     df_base = st.session_state.app_df
 
@@ -242,7 +336,7 @@ try:
             st.session_state.active_card_key = None
             st.session_state.scanned_shaban = ""
             st.session_state.scanned_detail = ""
-            st.session_state.save_success_msg = ""
+            st.session_state.action_notice = ""
             st.rerun()
 
     tab1, tab2, tab3, tab4 = st.tabs(["🔍 検索", "➕ 新規登録", "✏️ 編集", "⭐ お気に入り"])
@@ -353,11 +447,10 @@ try:
     with tab2:
         st.subheader("➕ 新規車両の登録")
 
-        if st.session_state.save_success_msg:
-            st.success(st.session_state.save_success_msg)
-            st.session_state.save_success_msg = ""
+        if st.session_state.action_notice:
+            st.success(st.session_state.action_notice)
+            st.session_state.action_notice = ""
         
-        # 会社番号と名前の決定
         existing_companies = df_base['会社名'].dropna().unique().tolist() if '会社名' in df_base.columns else []
         used_numbers = set()
         for c in existing_companies:
@@ -458,10 +551,9 @@ try:
                 submitted = st.form_submit_button("💾 この内容で登録を保存", type="primary")
                 if submitted:
                     if not new_shaban:
-                        st.error("⚠️ 車番を入力してください！")
+                        st.error("⚠️️ 車番を入力してください！")
                     else:
                         try:
-                            # メモリ上の全データに即時挿入＆ソート＋Excel保存
                             insert_vehicle_record(
                                 selected_target_comp,
                                 new_shaban,
@@ -472,47 +564,68 @@ try:
                             )
                             st.session_state.scanned_shaban = ""
                             st.session_state.scanned_detail = ""
-                            st.session_state.save_success_msg = f"🎉 会社「{selected_target_comp}」に 車番「{new_shaban}」を追加しました！チャート表に反映されています。"
+                            st.session_state.action_notice = f"🎉 会社「{selected_target_comp}」に 車番「{new_shaban}」を追加しました！チャート表に反映されています。"
                             st.toast("✅ 登録が完了しました！")
                             st.rerun()
                         except Exception as ex:
                             st.error(f"⚠️ 保存中にエラーが発生しました: {ex}")
 
-    # ── 【タブ3】 編集・削除 ──
+    # ── 【タブ3】 編集・削除（完全消去対応） ──
     with tab3:
         st.subheader("✏️ 車両情報の編集・削除")
-        st.write("まず、編集したい車両を検索して決定してください。")
+
+        if st.session_state.action_notice:
+            st.success(st.session_state.action_notice)
+            st.session_state.action_notice = ""
+
+        st.write("まず、編集・削除したい車両を検索して決定してください。")
         
-        edit_search_val = st.text_input("編集したい車番を検索", key="edit_search_input")
+        edit_search_val = st.text_input("編集・削除したい車番を検索", key="edit_search_input")
         
         if edit_search_val:
             matched = df_base[df_base['車番'].astype(str).str.contains(edit_search_val, case=False, na=False)]
             if len(matched) > 0:
-                car_choices = [f"{r.get('車番', '')} - {r.get('会社名', '')} ({r.get('詳細', '')})" for _, r in matched.iterrows()]
-                selected_edit_car = st.selectbox("編集する車両を決定してください", car_choices)
+                car_choices = [f"{r.get('車番', '')} - {r.get('会社名', '')} (入力番号: {r.get('入力番号', '')})" for _, r in matched.iterrows()]
+                selected_edit_car = st.selectbox("対象の車両を決定してください", car_choices)
                 
                 edit_idx = car_choices.index(selected_edit_car)
                 target_edit_row = matched.iloc[edit_idx]
+                target_old_comp = target_edit_row.get('会社名', '')
+                target_old_shaban = target_edit_row.get('車番', '')
+                target_old_input_no = target_edit_row.get('入力番号', '')
 
                 st.markdown(f"""
                 <div class="vehicle-detail-card">
-                    <div class="card-title">✏️ 車両編集カード: {target_edit_row.get('車番')}</div>
+                    <div class="card-title">✏️ 車両編集・削除カード: {target_old_shaban}</div>
                 </div>
                 """, unsafe_allow_html=True)
 
                 with st.form("card_edit_form"):
-                    e_comp = st.text_input("会社名", value=target_edit_row.get('会社名', ''))
-                    e_shaban = st.text_input("車番", value=target_edit_row.get('車番', ''))
-                    e_input = st.text_input("入力番号", value=target_edit_row.get('入力番号', ''))
+                    e_comp = st.text_input("会社名", value=target_old_comp)
+                    e_shaban = st.text_input("車番", value=target_old_shaban)
+                    e_input = st.text_input("入力番号", value=target_old_input_no)
                     e_detail = st.text_input("詳細", value=target_edit_row.get('詳細', ''))
                     e_remark = st.text_input("備考", value=target_edit_row.get('備考', ''))
                     e_fuutai = st.text_input("風体", value=target_edit_row.get('風体', ''))
 
                     c1, c2 = st.columns(2)
-                    if c1.form_submit_button("🔄 変更を保存", type="primary"):
-                        st.info("※編集・削除機能のExcel反映も順次拡張可能です！")
-                    if c2.form_submit_button("🗑 この車両を削除"):
-                        st.warning("⚠️ データを削除しました。")
+                    save_clicked = c1.form_submit_button("🔄 変更を保存", type="primary")
+                    del_clicked = c2.form_submit_button("🗑 この車両を削除")
+
+                    if save_clicked:
+                        update_vehicle_record(
+                            target_old_comp, target_old_shaban, target_old_input_no,
+                            e_comp, e_shaban, e_input, e_detail, e_remark, e_fuutai
+                        )
+                        st.session_state.action_notice = f"✅ 車番「{e_shaban}」の内容を更新・保存しました！"
+                        st.toast("✅ 変更を保存しました！")
+                        st.rerun()
+
+                    if del_clicked:
+                        delete_vehicle_record(target_old_comp, target_old_shaban, target_old_input_no)
+                        st.session_state.action_notice = f"🗑 会社「{target_old_comp}」の 車番「{target_old_shaban}」を完全に消去しました！"
+                        st.toast("🗑 データを消去しました！")
+                        st.rerun()
             else:
                 st.info("該当する車両が見つかりませんでした。")
 

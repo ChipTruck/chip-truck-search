@@ -67,15 +67,15 @@ try:
     st.write("車番（ナンバープレートの数字など）で素早く検索できます。")
 
     # 通常のテキスト入力欄（キーボード入力用）
-    def update_from_input():
-        st.session_state.search_query = st.session_state.temp_input
-
-    search_query = st.text_input(
+    user_input = st.text_input(
         "🔍 車番を入力（例: 1, 8, 14 など）", 
-        value=st.session_state.search_query,
-        key="temp_input",
-        on_change=update_from_input
+        value=st.session_state.search_query
     )
+    
+    # 入力欄の値が手動で変更されたらセッションに反映
+    if user_input != st.session_state.search_query:
+        st.session_state.search_query = user_input
+        st.rerun()
 
     # ── 画面上のテンキーボタンエリア ──
     st.write("🔢 **テンキー入力ボタン**")

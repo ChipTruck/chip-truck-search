@@ -117,22 +117,19 @@ try:
     with tab1:
         st.write("車番の数字で素早く検索できます。")
 
-        # テンキー操作と連動するためのコールバック関数
         def add_char(char):
             st.session_state.search_query += char
 
         def clear_query():
             st.session_state.search_query = ""
 
-        # 現在の検索文字列を表示（確認用）
         current_query = st.text_input(
             "🔍 検索ワード（下のテンキーで入力できます）", 
             value=st.session_state.search_query,
             key="search_display_box",
-            disabled=True  # キーボードの競合を防ぐため、直接入力をロックしてテンキーで操作
+            disabled=True
         )
 
-        # テンキー操作パネル
         with st.expander("🔢 テンキー入力を開く（タップで入力）", expanded=True):
             r1c1, r1c2, r1c3 = st.columns(3)
             r1c1.button("1", use_container_width=True, on_click=add_char, args=("1",))
@@ -220,7 +217,7 @@ try:
 
             if submit_button:
                 if not new_shaban or not company_name:
-                    st.error("⚠️ 「会社名」と"車番"は必須です！")
+                    st.error("⚠️ 会社名 と 車番 は必須です！")
                 else:
                     if '車番' in df_base.columns and new_shaban in df_base['車番'].values:
                         st.warning(f"⚠️ 車番「{new_shaban}」はすでに登録されています！(必要に応じてA/B等で区別してください)")

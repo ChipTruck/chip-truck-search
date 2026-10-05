@@ -8,20 +8,17 @@ st.set_page_config(page_title="登録車両 総合管理アプリ", page_icon="�
 # セッション状態の初期化
 if "search_query" not in st.session_state:
     st.session_state.search_query = ""
-if "favorites" not in st.session_state:
-    st.session_state.favorites = []
 
 # Excelファイルのパス
 FILE_PATH = "新_登録車両資料_連動版.xlsx"
 
-# データの読み込み＆管理用データの整理（登録日時・削除フラグ対応）
+# データの読み込み＆管理用データの整理
 @st.cache_data
 def load_data():
     try:
         raw_df = pd.read_excel(FILE_PATH, sheet_name="新_登録車両資料", header=None)
     except Exception:
-        # シートがない場合のフォールバック
-        raw_df = pd.DataFrame(columns=[0, 1, 2, 3, 4, 5])
+        raw_df = pd.DataFrame()
 
     raw_df = raw_df.dropna(how="all").astype(str)
     raw_df = raw_df.replace(r'^\s*$', pd.NA, regex=True)
@@ -32,8 +29,8 @@ def load_data():
     for _, row in raw_df.iterrows():
         row_text = " ".join(row.dropna().astype(str))
         if ":" in row_text or "：" in row_text:
-            for val in raw_df.columns:
-                v_str = str(row[val])
+            for val in row.values:
+                v_str = str(val)
                 if ":" in v_str or "：" in v_str:
                     current_comp = v_str.strip()
                     break
@@ -53,7 +50,6 @@ def load_data():
         else:
             columns.append(f"extra_{i}")
     
-    # 不足している列を埋める
     padded_rows = []
     for r in processed_rows:
         while len(r) < len(columns):
@@ -63,7 +59,6 @@ def load_data():
     df_display = pd.DataFrame(padded_rows, columns=columns[:len(padded_rows[0])])
     df_display = df_display.dropna(subset=['会社名'])
     
-    # 削除フラグが立っていないものだけを通常表示にする（履歴保持のためデータ自体は残す）
     if '削除フラグ' in df_display.columns:
         df_display = df_display[df_display['削除フラグ'] != '1']
         
@@ -82,14 +77,12 @@ try:
             st.session_state.search_query = ""
             st.rerun()
 
-    # ── タブによる画面の切り替え（全部乗せを実現！） ──
     tab1, tab2, tab3, tab4 = st.tabs(["🔍 検索・閲覧", "➕ 新規登録 (カメラ対応)", "✏️ 編集・削除", "⭐ お気に入り"])
 
     # ── 【タブ1】 検索・閲覧 ──
     with tab1:
         st.write("車番（ナンバープレートの数字など）で素早く検索できます。")
 
-        # 通常のテキスト入力欄
         user_input = st.text_input(
             "🔍 車番を入力（例: 1, 8, 14 など）", 
             value=st.session_state.search_query,
@@ -99,7 +92,6 @@ try:
             st.session_state.search_query = user_input
             st.rerun()
 
-        # テンキーボタンエリア
         with st.expander("🔢 テンキー入力を開く", expanded=False):
             r1_c1, r1_c2, r1_c3 = st.columns(3)
             if r1_c1.button("1", use_container_width=True): st.session_state.search_query += "1"; st.rerun()
@@ -125,7 +117,6 @@ try:
                 st.session_state.search_query = ""
                 st.rerun()
 
-        # フィルタリング処理（車番列でピンポイント検索）
         filtered_df = df_base.copy()
         is_searched = False
 
@@ -135,7 +126,6 @@ try:
                 mask = filtered_df['車番'].str.contains(st.session_state.search_query, case=False, na=False)
                 filtered_df = filtered_df[mask]
 
-        # 検索されたときだけ、数字の小さい順にソート
         if is_searched:
             try:
                 if '車番' in filtered_df.columns:
@@ -147,8 +137,11 @@ try:
             except Exception:
                 pass
 
-        # 表示用：同じ会社名は最初だけ表示
-        display_df = filtered_df.copy()
+        # ── 登録日時や削除フラグを表に表示させないよう、必要な列だけに絞る ──
+        display_cols = [c for c in ['会社名', '車番', '入力番号', '詳細', '備考', '風体'] if c in filtered_df.columns]
+        display_df = filtered_df[display_cols].copy()
+
+        # 同じ会社名は最初だけ表示
         if '会社名' in display_df.columns:
             display_df['会社名'] = display_df['会社名'].mask(display_df['会社名'] == display_df['会社名'].shift(), '')
 
@@ -159,20 +152,15 @@ try:
 
         st.dataframe(display_df, width="stretch", hide_index=True)
 
-    # ── 【タブ2】 新規登録 (カメラ対応 ＆ 重複チェック) ──
+    # ── 【タブ2】 新規登録 ──
     with tab2:
         st.subheader("➕ 新規車両の登録")
-        st.write("カメラで撮影してナンバーを読み取るか、直接手入力で登録できます。")
-
-        # カメラ入力機能
         camera_image = st.camera_input("📷 ナンバープレートや車両を撮影して読み取る")
         scanned_number = ""
         if camera_image is not None:
-            st.success("✨ 写真を受け付けました！プレビューから数字を確認して入力してください。")
-            # 将来的なOCR処理の土台
+            st.success("✨ 写真を受け付けました！")
 
         with st.form("new_vehicle_form"):
-            # 会社名の選択（既存 or 新規）
             existing_companies = df_base['会社名'].dropna().unique().tolist() if '会社名' in df_base.columns else []
             comp_mode = st.radio("会社名の指定方法", ["既存の会社から選ぶ", "新しい会社を入力する"])
             
@@ -193,19 +181,15 @@ try:
                 if not new_shaban or not company_name:
                     st.error("⚠️ 「会社名」と「車番」は必ず入力してください！")
                 else:
-                    # 重複チェック
                     if '車番' in df_base.columns and new_shaban in df_base['車番'].values:
                         st.warning(f"⚠️ 警告: 車番「{new_shaban}」はすでに登録されています！")
                     else:
                         st.success(f"🎉 会社名: {company_name} / 車番: {new_shaban} を登録しました！（登録日時: {datetime.now().strftime('%Y-%m-%d %H:%M')}）")
-                        # ※実際のExcel書き込み処理をここに組み込めます
 
     # ── 【タブ3】 編集・削除 ──
     with tab3:
         st.subheader("✏️ 車両情報の編集・削除")
-        st.write("登録されている車両を検索して、内容の修正や削除（履歴保持）が行えます。")
         edit_query = st.text_input("編集・削除したい車番を入力して検索", key="edit_search")
-        
         if edit_query:
             matched = df_base[df_base['車番'].str.contains(edit_query, case=False, na=False)]
             if len(matched) > 0:
@@ -213,26 +197,21 @@ try:
                 for idx, row in matched.iterrows():
                     with st.expander(f"車番: {row.get('車番')} （会社名: {row.get('会社名')}）"):
                         with st.form(f"edit_form_{idx}"):
-                            e_comp = st.text_input("会社名", value=row.get('会社名', ''))
-                            e_shaban = st.text_input("車番", value=row.get('車番', ''))
-                            e_detail = st.text_input("詳細", value=row.get('詳細', ''))
-                            
+                            st.text_input("会社名", value=row.get('会社名', ''))
+                            st.text_input("車番", value=row.get('車番', ''))
+                            st.text_input("詳細", value=row.get('詳細', ''))
                             col_e1, col_e2 = st.columns(2)
-                            update_btn = col_e1.form_submit_button("🔄 変更を保存")
-                            delete_btn = col_e2.form_submit_button("🗑️ この車両を削除")
-                            
-                            if update_btn:
-                                st.success("✨ 変更を保存しました！")
-                            if delete_btn:
-                                st.warning("🗑️ データを削除しました（履歴として保持されます）。")
+                            if col_e1.form_submit_button("🔄 変更を保存"):
+                                st.success("変更を保存しました！")
+                            if col_e2.form_submit_button("🗑️ 削除"):
+                                st.warning("データを削除しました。")
             else:
                 st.info("該当する車番が見つかりません。")
 
     # ── 【タブ4】 お気に入り ──
     with tab4:
         st.subheader("⭐ お気に入り（よく使う車両）")
-        st.write("よく確認する車両を登録しておくと、いつでもワンタップで呼び出せます。")
-        st.info("現在お気に入りに登録されている車両はありません。（検索結果から追加機能などを今後拡張できます！）")
+        st.info("現在お気に入りに登録されている車両はありません。")
 
 except Exception as e:
     st.error(f"データの読み込み中にエラーが発生しました: {e}")

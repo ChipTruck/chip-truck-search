@@ -83,6 +83,8 @@ if "scanned_shaban" not in st.session_state:
     st.session_state.scanned_shaban = ""
 if "scanned_detail" not in st.session_state:
     st.session_state.scanned_detail = ""
+if "save_success_msg" not in st.session_state:
+    st.session_state.save_success_msg = ""
 
 # テンキー処理
 if st.session_state.pending_key is not None:
@@ -159,23 +161,40 @@ def load_data():
             
     return df_display
 
-# Excelファイルへ実際に新しい会社＆車両を保存する関数
+# Excelファイルへ正しく行挿入して保存する関数
 def save_new_vehicle_to_excel(company_str, shaban, input_no, detail, remark, fuutai):
     wb = openpyxl.load_workbook(FILE_PATH)
     ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
 
     comp_row_idx = None
-    last_row = ws.max_row
-    
-    for r in range(1, last_row + 1):
+    target_comp_code = -1
+    m_target = re.match(r'^(\d{2})[:：]', company_str.strip())
+    if m_target:
+        target_comp_code = int(m_target.group(1))
+
+    # 既存の会社位置、または番号順で挿入すべき行位置を探索
+    insert_before_row = None
+    for r in range(1, ws.max_row + 1):
         val = str(ws.cell(row=r, column=1).value or "").strip()
+        if not val or val == "nan":
+            continue
+        
+        # 完全一致する既存会社があるか
         if company_str == val or company_str.replace(":", "：") == val.replace(":", "："):
             comp_row_idx = r
             break
+        
+        # 会社番号を比較して適切な挿入位置を探す（25なら26の直前）
+        m = re.match(r'^(\d{2})[:：]', val)
+        if m and target_comp_code >= 0:
+            c_code = int(m.group(1))
+            if c_code > target_comp_code and insert_before_row is None:
+                insert_before_row = r
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if comp_row_idx is not None:
+        # 既存会社の場合：その会社の車両行の末尾に挿入
         insert_target = comp_row_idx + 1
         while insert_target <= ws.max_row:
             cell_v = str(ws.cell(row=insert_target, column=1).value or "").strip()
@@ -193,21 +212,25 @@ def save_new_vehicle_to_excel(company_str, shaban, input_no, detail, remark, fuu
         ws.cell(row=insert_target, column=7, value=str(fuutai))
         ws.cell(row=insert_target, column=8, value=now_str)
     else:
-        r1 = ws.max_row + 1
-        ws.cell(row=r1, column=1, value=str(company_str))
+        # 新規会社の場合：番号順の位置に会社ヘッダー行＋車両行を挿入
+        ins_r = insert_before_row if insert_before_row is not None else (ws.max_row + 1)
+        ws.insert_rows(ins_r, amount=2)
         
-        r2 = r1 + 1
-        ws.cell(row=r2, column=1, value="")
-        ws.cell(row=r2, column=2, value=str(shaban))
-        ws.cell(row=r2, column=3, value=str(input_no))
-        ws.cell(row=r2, column=4, value=str(detail))
-        ws.cell(row=r2, column=5, value=str(remark))
-        ws.cell(row=r2, column=6, value="")
-        ws.cell(row=r2, column=7, value=str(fuutai))
-        ws.cell(row=r2, column=8, value=now_str)
+        # 1行目: 会社ヘッダー
+        ws.cell(row=ins_r, column=1, value=str(company_str))
+        # 2行目: 車両データ
+        ws.cell(row=ins_r + 1, column=1, value="")
+        ws.cell(row=ins_r + 1, column=2, value=str(shaban))
+        ws.cell(row=ins_r + 1, column=3, value=str(input_no))
+        ws.cell(row=ins_r + 1, column=4, value=str(detail))
+        ws.cell(row=ins_r + 1, column=5, value=str(remark))
+        ws.cell(row=ins_r + 1, column=6, value="")
+        ws.cell(row=ins_r + 1, column=7, value=str(fuutai))
+        ws.cell(row=ins_r + 1, column=8, value=now_str)
 
     wb.save(FILE_PATH)
-    load_data.clear()
+    # キャッシュを確実に消去
+    st.cache_data.clear()
 
 try:
     df_base = load_data()
@@ -223,6 +246,7 @@ try:
             st.session_state.active_card_key = None
             st.session_state.scanned_shaban = ""
             st.session_state.scanned_detail = ""
+            st.session_state.save_success_msg = ""
             st.rerun()
 
     tab1, tab2, tab3, tab4 = st.tabs(["🔍 検索", "➕ 新規登録", "✏️ 編集", "⭐ お気に入り"])
@@ -329,9 +353,13 @@ try:
                 """
                 st.markdown(card_html, unsafe_allow_html=True)
 
-    # ── 【タブ2】 新規登録（カメラ・写真スキャン＋カード入力） ──
+    # ── 【タブ2】 新規登録 ──
     with tab2:
         st.subheader("➕ 新規車両の登録")
+
+        if st.session_state.save_success_msg:
+            st.success(st.session_state.save_success_msg)
+            st.session_state.save_success_msg = ""
         
         # 1. 会社番号と名前の決定
         existing_companies = df_base['会社名'].dropna().unique().tolist() if '会社名' in df_base.columns else []
@@ -377,7 +405,7 @@ try:
                 selected_target_comp = f"{new_comp_code}：{new_comp_raw_name.strip()}"
                 comp_2digit_prefix = new_comp_code
 
-        # 2. 写真撮影・アップロードによる自動読み取り枠
+        # 2. カメラ撮影 / 写真スキャン
         st.write("---")
         with st.expander("📷 カメラ撮影 / 画像アップロードで自動入力する", expanded=False):
             upload_choice = st.radio("入力方法", ["カメラで撮影", "写真をアップロード"], horizontal=True)
@@ -390,7 +418,6 @@ try:
             if uploaded_image is not None:
                 st.image(uploaded_image, caption="取り込んだ画像", width=250)
                 if st.button("✨ 画像から車番・ナンバーを読み取る", use_container_width=True):
-                    # OCRライブラリ有無に応じた安全な抽出（pytesseract対応）
                     extracted_text = ""
                     try:
                         import pytesseract
@@ -399,7 +426,6 @@ try:
                     except Exception:
                         pass
                     
-                    # ナンバープレートや4桁数字の抽出ロジック
                     nums = re.findall(r'\b\d{1,4}\b', extracted_text)
                     if nums:
                         st.session_state.scanned_shaban = nums[-1]
@@ -409,7 +435,7 @@ try:
                         st.info("💡 画像を受け付けました。下のカードで必要項目を確認・入力してください。")
                     st.rerun()
 
-        # 3. 会社決定後の新規車両カード入力
+        # 3. 新規車両カード入力
         if selected_target_comp:
             st.markdown(f"""
             <div class="vehicle-detail-card">
@@ -423,7 +449,6 @@ try:
                     value=st.session_state.get("scanned_shaban", "")
                 )
                 
-                # 自動入力番号の計算
                 calc_input_no = f"{comp_2digit_prefix}{new_shaban}" if comp_2digit_prefix and new_shaban else ""
                 new_input_no = st.text_input("入力番号（会社2桁＋車番）", value=calc_input_no)
                 
@@ -434,7 +459,8 @@ try:
                 new_remark = st.text_input("備考（例: 4t車、大型など）")
                 new_fuutai = st.text_input("風体")
 
-                if st.form_submit_button("💾 この内容で登録を保存", type="primary"):
+                submitted = st.form_submit_button("💾 この内容で登録を保存", type="primary")
+                if submitted:
                     if not new_shaban:
                         st.error("⚠️ 車番を入力してください！")
                     else:
@@ -447,13 +473,13 @@ try:
                                 new_remark,
                                 new_fuutai
                             )
-                            # 登録後はスキャン状態をクリア
                             st.session_state.scanned_shaban = ""
                             st.session_state.scanned_detail = ""
-                            st.success(f"🎉 Excelに書き込み完了！ 会社「{selected_target_comp}」に 車番「{new_shaban}」を追加しました！")
+                            st.session_state.save_success_msg = f"🎉 Excelに書き込み完了！ 会社「{selected_target_comp}」に 車番「{new_shaban}」を追加しました！"
+                            st.toast("✅ Excelに保存が完了しました！")
                             st.rerun()
                         except Exception as ex:
-                            st.error(f"保存中にエラーが発生しました: {ex}")
+                            st.error(f"⚠️ 保存中にエラーが発生しました: {ex}")
 
     # ── 【タブ3】 編集・削除 ──
     with tab3:

@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import re
 from datetime import datetime
 
 # ページの設定
@@ -32,7 +33,7 @@ st.markdown("""
         min-width: 0 !important;
     }
     
-    /* テンキーボタンのデザイン（スマホで押しやすい高さと角丸） */
+    /* テンキーボタンのデザイン */
     div[data-testid="stHorizontalBlock"] button {
         width: 100% !important;
         height: 52px !important;
@@ -176,7 +177,6 @@ try:
     with tab1:
         st.write("車番の数字で素早く検索できます。")
 
-        # 入力ボックス
         st.text_input(
             "🔍 車番を入力（例: 1, 8, 14 など）", 
             key="search_box_main"
@@ -186,7 +186,6 @@ try:
             st.session_state.pending_key = val
             st.rerun()
 
-        # テンキー操作（スマホでも崩れない3列配置）
         with st.expander("🔢 テンキー入力を開く", expanded=True):
             r1c1, r1c2, r1c3 = st.columns(3)
             if r1c1.button("1", use_container_width=True): on_num_click("1")
@@ -236,7 +235,6 @@ try:
         display_cols = [c for c in ['会社名', '車番', '入力番号', '詳細', '備考', '風体'] if c in filtered_df.columns]
         display_df = filtered_df[display_cols].copy()
 
-        # チャート表用
         table_df = display_df.copy()
         if '会社名' in table_df.columns:
             table_df['会社名'] = table_df['会社名'].mask(table_df['会社名'] == table_df['会社名'].shift(), '')
@@ -279,19 +277,57 @@ try:
                 """
                 st.markdown(card_html, unsafe_allow_html=True)
 
-    # ── 【タブ2】 新規登録 ──
+    # ── 【タブ2】 新規登録（会社番号の決定からスタート！） ──
     with tab2:
         st.subheader("➕ 新規車両の登録")
         
+        # 既存の会社一覧と、使われている2桁番号の抽出
         existing_companies = df_base['会社名'].dropna().unique().tolist() if '会社名' in df_base.columns else []
-        comp_mode = st.radio("① 登録する会社を指定", ["既存の会社から選ぶ", "新しい会社を作成する"], horizontal=True)
+        used_numbers = set()
+        for c in existing_companies:
+            m = re.match(r'^(\d{2})[:：]', str(c).strip())
+            if m:
+                used_numbers.add(int(m.group(1)))
+        
+        # 次に使える空いている最小の2桁番号を自動計算
+        next_avail_num = 0
+        while next_avail_num in used_numbers and next_avail_num < 100:
+            next_avail_num += 1
+        default_2digit = f"{next_avail_num:02d}"
+
+        comp_mode = st.radio("① 会社の指定方法", ["既存の会社から選ぶ", "新しい会社を番号から決める"], horizontal=True)
         
         selected_target_comp = ""
+        comp_2digit_prefix = ""
+
         if comp_mode == "既存の会社から選ぶ" and existing_companies:
             selected_target_comp = st.selectbox("登録先の会社名を選択", existing_companies)
+            m = re.match(r'^(\d{2})[:：]', str(selected_target_comp).strip())
+            if m:
+                comp_2digit_prefix = m.group(1)
         else:
-            selected_target_comp = st.text_input("新しい会社名（例: 03：〇〇商事）")
+            st.markdown("##### 🏢 新しい会社の番号と名前を決める")
+            c_num_col, c_name_col = st.columns([1, 2])
+            
+            with c_num_col:
+                new_comp_code = st.text_input("会社番号(2桁)", value=default_2digit, max_chars=2)
+            with c_name_col:
+                new_comp_raw_name = st.text_input("会社名（例: 〇〇商事）")
 
+            # 2桁の重複・形式チェック
+            if new_comp_code:
+                if not new_comp_code.isdigit() or len(new_comp_code) != 2:
+                    st.warning("⚠️ 会社番号は半角数字2桁（00〜99）で入力してください。")
+                elif int(new_comp_code) in used_numbers:
+                    st.error(f"⚠️ 番号「{new_comp_code}」は既に使われています！別の空き番号を指定してください。")
+                else:
+                    st.info(f"💡 番号「{new_comp_code}」は空いています。利用可能です！")
+
+            if new_comp_code and new_comp_raw_name:
+                selected_target_comp = f"{new_comp_code}：{new_comp_raw_name.strip()}"
+                comp_2digit_prefix = new_comp_code
+
+        # 会社と番号が決まったら、カード入力フォームを展開
         if selected_target_comp:
             st.markdown(f"""
             <div class="vehicle-detail-card">
@@ -301,7 +337,11 @@ try:
 
             with st.form("new_vehicle_form_card"):
                 new_shaban = st.text_input("車番 *必須（重複時はA/B等）", value=st.session_state.get("scanned_shaban", ""))
-                new_input_no = st.text_input("入力番号（会社2桁＋車番）")
+                
+                # 車両番号が決まれば、入力番号を「会社番号2桁＋車番」として案内
+                default_input_no = f"{comp_2digit_prefix}{new_shaban}" if comp_2digit_prefix and new_shaban else ""
+                new_input_no = st.text_input("入力番号（会社2桁＋車番）", value=default_input_no)
+                
                 new_detail = st.text_input("詳細（例: 岐阜302 も 9418）", value=st.session_state.get("scanned_detail", ""))
                 new_remark = st.text_input("備考（例: 4t車、大型など）")
                 new_fuutai = st.text_input("風体")
@@ -310,7 +350,7 @@ try:
                     if not new_shaban:
                         st.error("⚠️ 車番を入力してください！")
                     else:
-                        st.success(f"🎉 会社「{selected_target_comp}」に 車番「{new_shaban}」を登録しました！")
+                        st.success(f"🎉 会社「{selected_target_comp}」に 車番「{new_shaban}」（入力番号: {new_input_no}）を登録しました！")
 
     # ── 【タブ3】 編集・削除 ──
     with tab3:

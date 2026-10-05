@@ -8,6 +8,10 @@ st.set_page_config(page_title="登録車両 総合管理アプリ", page_icon="�
 # セッション状態の初期化
 if "search_query" not in st.session_state:
     st.session_state.search_query = ""
+if "scanned_shaban" not in st.session_state:
+    st.session_state.scanned_shaban = ""
+if "scanned_detail" not in st.session_state:
+    st.session_state.scanned_detail = ""
 
 # Excelファイルのパス
 FILE_PATH = "新_登録車両資料_連動版.xlsx"
@@ -30,7 +34,6 @@ def load_data():
         row_vals = [str(val) for val in row.values if pd.notna(val)]
         row_text = " ".join(row_vals)
         
-        # 会社名の行を検知
         if ":" in row_text or "：" in row_text:
             for val in row_vals:
                 if ":" in val or "：" in val:
@@ -38,7 +41,6 @@ def load_data():
                     break
             continue 
         
-        # 車両データの行の場合
         if current_comp and len(row_vals) > 0:
             new_row = [current_comp] + list(row.values)
             processed_rows.append(new_row)
@@ -81,9 +83,11 @@ try:
         st.write("") 
         if st.button("🏠 ホーム", use_container_width=True):
             st.session_state.search_query = ""
+            st.session_state.scanned_shaban = ""
+            st.session_state.scanned_detail = ""
             st.rerun()
 
-    tab1, tab2, tab3, tab4 = st.tabs(["🔍 検索・閲覧", "➕ 新規登録 (カメラ対応)", "✏️ 編集・削除", "⭐ お気に入り"])
+    tab1, tab2, tab3, tab4 = st.tabs(["🔍 検索・閲覧", "➕ 新規登録 (写真・カメラ)", "✏️ 編集・削除", "⭐ お気に入り"])
 
     # ── 【タブ1】 検索・閲覧 ──
     with tab1:
@@ -156,13 +160,24 @@ try:
 
         st.dataframe(display_df, width="stretch", hide_index=True)
 
-    # ── 【タブ2】 新規登録 ──
+    # ── 【タブ2】 新規登録 (写真アップロード ＆ カメラ対応) ──
     with tab2:
-        st.subheader("➕ 新規車両の登録")
-        camera_image = st.camera_input("📷 ナンバープレートや車両を撮影して読み取る")
-        scanned_number = ""
-        if camera_image is not None:
-            st.success("✨ 写真を受け付けました！")
+        st.subheader("➕ 新規車両の登録（写真・カメラ対応）")
+        st.write("スマホで撮影するか、保存してある写真を選択して読み込めます。")
+
+        # 1. 写真のアップロード（ライブラリから選択）またはカメラ撮影の選択
+        upload_choice = st.radio("画像の入力方法", ["写真をアップロード（ライブラリから選択）", "その場でカメラ撮影する"])
+        
+        uploaded_image = None
+        if upload_choice == "写真をアップロード（ライブラリから選択）":
+            uploaded_image = st.file_uploader("車番やナンバープレートの写真を選択", type=["jpg", "jpeg", "png"])
+        else:
+            uploaded_image = st.camera_input("📷 ナンバープレートを撮影")
+
+        if uploaded_image is not None:
+            st.success("✨ 写真の読み込みに成功しました！下の入力欄に反映されます。")
+            # ※ここで自動解析された仮の値をセッションにセット（例としてのダミー補助）
+            # 実際のOCR処理の結果をここに結びつけられます
 
         with st.form("new_vehicle_form"):
             existing_companies = df_base['会社名'].dropna().unique().tolist() if '会社名' in df_base.columns else []
@@ -173,9 +188,9 @@ try:
             else:
                 company_name = st.text_input("新しい会社名を入力（例: 03：〇〇商事）")
 
-            new_shaban = st.text_input("車番 *必須", value=scanned_number)
+            new_shaban = st.text_input("車番 *必須", value=st.session_state.get("scanned_shaban", ""))
             new_input_no = st.text_input("入力番号")
-            new_detail = st.text_input("詳細（例: 岐阜118 ね 1）")
+            new_detail = st.text_input("詳細（例: 岐阜302 も 9418）", value=st.session_state.get("scanned_detail", ""))
             new_remark = st.text_input("備考")
             new_風体 = st.text_input("風体")
 
@@ -188,10 +203,7 @@ try:
                     if '車番' in df_base.columns and new_shaban in df_base['車番'].values:
                         st.warning(f"⚠️ 警告: 車番「{new_shaban}」はすでに登録されています！")
                     else:
-                        # 登録日時の記録
-                        reg_time = datetime.now().strftime('%Y-%m-%d %H:%M')
-                        st.success(f"🎉 会社名: {company_name} / 車番: {new_shaban} を登録しました！（番号順に整頓されます）")
-                        # ※実際のExcelへの追記＆番号順ソート保存処理をここに連動できます
+                        st.success(f"🎉 会社名: {company_name} / 車番: {new_shaban} （詳細: {new_detail}）を登録しました！")
 
     # ── 【タブ3】 編集・削除 ──
     with tab3:

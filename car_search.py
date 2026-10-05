@@ -4,7 +4,7 @@ import pandas as pd
 # ページの設定
 st.set_page_config(page_title="登録車両検索アプリ", page_icon="🚗", layout="centered")
 
-# データの読み込み＆会社名だけを正確に引き継ぐ関数
+# データの読み込み＆会社名と車両データを完全に分離・整理する関数
 @st.cache_data
 def load_data():
     file_path = "新_登録車両資料_連動版.xlsx"
@@ -17,27 +17,70 @@ def load_data():
     df = df.astype(str)
     df = df.replace(r'^\s*$', pd.NA, regex=True)
     
-    # 会社名が入っている列（通常は0列目または1列目）を特定して、会社名だけを下に引き継ぐ
-    # 車両番号の列には絶対に数字が流れ込まないように独立させる
-    company_col_idx = 0
-    for idx, col in enumerate(df.columns):
-        # 「:」や「：」が含まれているセルが多い列を会社名列とみなす
-        if df[col].astype(str).str.contains('[:：]', na=False).sum() > 0:
-            company_col_idx = col
-            break
-
-    # 会社名専用の新しい列を作る
-    df['company_name'] = df[company_col_idx]
-    df['company_name'] = df['company_name'].ffill() # 会社名だけを下に流す
+    # 1. 会社名（「:」や「：」を含む行、または特定のパターン）を判定して新しい「company」列を作る
+    company_list = []
+    current_company = "未分類"
+    
+    for idx, row in df.iterrows():
+        # 行の中に「:」や「：」が含まれているセルがあるかチェック
+        row_str = " ".join(row.dropna().astype(str))
+        if ":" in row_str or "：" in row_str:
+            # 会社名らしい文字列を取得
+            for val in row.dropna():
+                val_s = str(val).strip()
+                if ":" in val_s or "：" in val_s:
+                    current_company = val_s
+                    break
+        company_list.append(current_company)
+        
+    df.insert(0, 'company_name', company_list)
+    
+    # 2. 会社名行自体のデータ（車両が入っていない行）は、表の見た目をスッキリさせるために除外、
+    #    または車両データ側に正しく配置する
+    # 会社名文字列そのものが含まれている行（車両データがない行）を特定して削除
+    is_header_row = df.apply(lambda row: row.astype(str).str.contains('[:：]').any(), axis=1)
+    # ただし車両データにもコロンが含まれる可能性を考慮し、主要なセルが空っぽの行を会社名行とみなす
+    df_cleaned = df[~is_header_row].copy()
+    
+    # もし会社名だけの行も残したい場合はそのままですが、今回は「会社名ごとにグループ化して右側にデータを出す」ため、
+    # 会社名行から車両データを分離します
     
     return df
 
 try:
-    df = load_data()
+    # 実際にすっきりとデータを再構築するロジック
+    file_path = "新_登録車両資料_連動版.xlsx"
+    raw_df = pd.read_excel(file_path, sheet_name="新_登録車両資料", header=None)
+    raw_df = raw_df.dropna(how="all").astype(str)
+    raw_df = raw_df.replace(r'^\s*$', pd.NA, regex=True)
 
-    # 会社名列を一番左に配置して、元の会社名があった列は削除する
-    cols = ['company_name'] + [col for col in df.columns if col not in ['company_name', 0]]
-    df_display = df[cols]
+    # 会社名を下に引き継ぎつつ、会社名行の不要なズレを解消する処理
+    processed_rows = []
+    current_comp = ""
+    
+    for _, row in raw_df.iterrows():
+        row_text = " ".join(row.dropna().astype(str))
+        # 会社名の行か判定
+        if ":" in row_text or "：" in row_text:
+            for val in row.dropna():
+                if ":" in str(val) or "：" in str(val):
+                    current_comp = str(val).strip()
+                    break
+            continue # 会社名行そのものはデータ行とは別にするためスキップ
+        
+        # 車両データの行の場合
+        if current_comp:
+            new_row = [current_comp] + list(row.values)
+            processed_rows.append(new_row)
+
+    # 新しいきれいなデータフレームを作成
+    max_len = max(len(r) for r in processed_rows) if processed_rows else 2
+    columns = ['会社名'] + [f"col_{i}" for i in range(max_len - 1)]
+    
+    # 行の長さを合わせる
+    padded_rows = [r + [pd.NA] * (max_len - len(r)) for r in processed_rows]
+    df_display = pd.DataFrame(padded_rows, columns=columns)
+    df_display = df_display.dropna(subset=['会社名'])
 
     # ── ヘルパー機能：タイトル ＆ ホームに戻るボタン ──
     col_title, col_home = st.columns([4, 1])
@@ -59,8 +102,8 @@ try:
 
     if search_query:
         is_searched = True
-        if len(filtered_df.columns) > 2:
-            # 会社名列を除外した車両データ側の列だけで検索
+        if len(filtered_df.columns) > 1:
+            # 会社名列（0番目）を除外した右側の車両データ列だけで検索
             target_cols = filtered_df.columns[1:]
             mask = filtered_df[target_cols].apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
             filtered_df = filtered_df[mask]
@@ -71,8 +114,8 @@ try:
     # 検索されたときだけ、数字の小さい順に正確に並び替える
     if is_searched:
         try:
-            if len(filtered_df.columns) > 1:
-                sort_col = filtered_df.columns[1] # 車両番号の列
+            if len(filtered_df.columns) > 2:
+                sort_col = filtered_df.columns[1] # 車両の数字列
                 filtered_df = filtered_df.copy()
                 filtered_df['_sort_num'] = pd.to_numeric(filtered_df[sort_col].str.extract(r'(\d+)', expand=False), errors='coerce')
                 filtered_df = filtered_df.sort_values(by='_sort_num', ascending=True, na_position='last')

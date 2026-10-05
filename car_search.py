@@ -16,49 +16,14 @@ st.markdown("""
         font-size: 1.8rem !important;
         word-break: break-all;
     }
+    [data-testid="stDataFrame"] {
+        width: 100% !important;
+    }
     div.stButton > button {
         width: 100%;
         border-radius: 8px;
         font-weight: bold;
         height: 48px;
-    }
-    /* 車両カードのスタイル（スマホで超見やすい） */
-    .vehicle-card {
-        background-color: #ffffff;
-        border: 1px solid #e0e0e0;
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 14px;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.06);
-    }
-    .card-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: baseline;
-        border-bottom: 1px solid #f0f0f0;
-        padding-bottom: 8px;
-        margin-bottom: 10px;
-    }
-    .card-shaban {
-        font-size: 1.4rem;
-        font-weight: bold;
-        color: #1e88e5;
-    }
-    .card-comp {
-        font-size: 1.0rem;
-        font-weight: bold;
-        color: #424242;
-    }
-    .card-item {
-        font-size: 0.95rem;
-        margin: 4px 0;
-        color: #333333;
-    }
-    .card-label {
-        font-weight: bold;
-        color: #666666;
-        display: inline-block;
-        width: 80px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -182,7 +147,7 @@ try:
 
             r4c1, r4c2, r4c3 = st.columns(3)
             r4c1.button("0", use_container_width=True, on_click=add_num, args=("0",))
-            r4c2.button("🎤 音声入力", use_container_width=True, on_click=lambda: st.toast("キーボードのマイクから音声入力できます！"))
+            r4c2.button("🎤 音声入力", use_container_width=True, on_click=lambda: st.toast("スマホのキーボードのマイクから入力できます！"))
             r4c3.button("クリア", use_container_width=True, on_click=clear_search)
 
             st.button("🔍 番号決定（検索実行）", use_container_width=True, type="primary")
@@ -206,37 +171,19 @@ try:
             except Exception:
                 pass
 
+        display_cols = [c for c in ['会社名', '車番', '入力番号', '詳細', '備考', '風体'] if c in filtered_df.columns]
+        display_df = filtered_df[display_cols].copy()
+
+        if '会社名' in display_df.columns:
+            display_df['会社名'] = display_df['会社名'].mask(display_df['会社名'] == display_df['会社名'].shift(), '')
+
         if is_searched:
-            st.markdown(f"### 🔍 検索結果: **{len(filtered_df)}** 件")
+            st.write(f"検索結果: **{len(filtered_df)}** 行 （検索キー: {search_val}）")
         else:
-            st.markdown(f"### 📋 全車両一覧: **{len(filtered_df)}** 件")
+            st.write(f"全車両一覧: **{len(filtered_df)}** 行")
 
-        # ── ここからカード風表示！ ──
-        if len(filtered_df) == 0:
-            st.info("該当する車両は見つかりませんでした。")
-        else:
-            # 検索時は見やすいカード形式で1台ずつ並べる
-            for _, row in filtered_df.iterrows():
-                comp = row.get('会社名', '-')
-                shaban = row.get('車番', '-')
-                inp_no = row.get('入力番号', '-')
-                detail = row.get('詳細', '-')
-                remark = row.get('備考', '-')
-                fuutai = row.get('風体', '-')
-
-                card_html = f"""
-                <div class="vehicle-card">
-                    <div class="card-header">
-                        <span class="card-shaban">🚗 車番: {shaban}</span>
-                        <span class="card-comp">{comp}</span>
-                    </div>
-                    <div class="card-item"><span class="card-label">入力番号:</span> <b>{inp_no}</b></div>
-                    <div class="card-item"><span class="card-label">詳細:</span> {detail}</div>
-                    <div class="card-item"><span class="card-label">備考:</span> {remark}</div>
-                    <div class="card-item"><span class="card-label">風体:</span> {fuutai}</div>
-                </div>
-                """
-                st.markdown(card_html, unsafe_allow_html=True)
+        # ── 元通りの表（データフレーム）表示 ──
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     # ── 【タブ2】 新規登録 ──
     with tab2:
@@ -274,7 +221,7 @@ try:
                     st.error("⚠️ 会社名 と 車番 は必須です！")
                 else:
                     if '車番' in df_base.columns and new_shaban in df_base['車番'].values:
-                        st.warning(f"⚠️ 車番「{new_shaban}」はすでに登録されています！(必要に応じてA/B等で区別してください)")
+                        st.warning(f"⚠️️ 車番「{new_shaban}」はすでに登録されています！(必要に応じてA/B等で区別してください)")
                     else:
                         st.success(f"🎉 会社名: {company_name} / 車番: {new_shaban} を登録しました！")
 

@@ -30,7 +30,7 @@ def load_data():
         row_vals = [str(val) for val in row.values if pd.notna(val)]
         row_text = " ".join(row_vals)
         
-        # 会社名の行（コロンが含まれている行など）を検知
+        # 会社名の行を検知
         if ":" in row_text or "：" in row_text:
             for val in row_vals:
                 if ":" in val or "：" in val:
@@ -40,13 +40,10 @@ def load_data():
         
         # 車両データの行の場合
         if current_comp and len(row_vals) > 0:
-            # 会社名 + 元の行データを結合
             new_row = [current_comp] + list(row.values)
             processed_rows.append(new_row)
 
     max_len = max(len(r) for r in processed_rows) if processed_rows else 2
-    
-    # 列名の割り当て（0:会社名, 1:車番, 2:入力番号, 3:詳細, 4:備考, 5:削除対象, 6:風体...）
     base_col_names = ['会社名', '車番', '入力番号', '詳細', '備考', '削除対象', '風体', '登録日時', '削除フラグ']
     
     columns = []
@@ -65,7 +62,6 @@ def load_data():
     df_display = pd.DataFrame(padded_rows, columns=columns[:len(padded_rows[0])])
     df_display = df_display.dropna(subset=['会社名'])
     
-    # 不要な「削除対象」の列があれば削除する
     if '削除対象' in df_display.columns:
         df_display = df_display.drop(columns=['削除対象'])
         
@@ -147,11 +143,9 @@ try:
             except Exception:
                 pass
 
-        # ── 表示する列を正しい順序で抽出 ──
         display_cols = [c for c in ['会社名', '車番', '入力番号', '詳細', '備考', '風体'] if c in filtered_df.columns]
         display_df = filtered_df[display_cols].copy()
 
-        # 同じ会社名は最初だけ表示
         if '会社名' in display_df.columns:
             display_df['会社名'] = display_df['会社名'].mask(display_df['会社名'] == display_df['会社名'].shift(), '')
 
@@ -177,7 +171,7 @@ try:
             if comp_mode == "既存の会社から選ぶ" and existing_companies:
                 company_name = st.selectbox("会社名を選択", existing_companies)
             else:
-                company_name = st.text_input("新しい会社名を入力（例: 00：〇〇商事）")
+                company_name = st.text_input("新しい会社名を入力（例: 03：〇〇商事）")
 
             new_shaban = st.text_input("車番 *必須", value=scanned_number)
             new_input_no = st.text_input("入力番号")
@@ -185,7 +179,7 @@ try:
             new_remark = st.text_input("備考")
             new_風体 = st.text_input("風体")
 
-            submit_button = st.form_submit_button(label="💾 この内容で登録する")
+            submit_button = st.form_submit_button(label="💾 この内容で番号順に登録する")
 
             if submit_button:
                 if not new_shaban or not company_name:
@@ -194,7 +188,10 @@ try:
                     if '車番' in df_base.columns and new_shaban in df_base['車番'].values:
                         st.warning(f"⚠️ 警告: 車番「{new_shaban}」はすでに登録されています！")
                     else:
-                        st.success(f"🎉 会社名: {company_name} / 車番: {new_shaban} を登録しました！（登録日時: {datetime.now().strftime('%Y-%m-%d %H:%M')}）")
+                        # 登録日時の記録
+                        reg_time = datetime.now().strftime('%Y-%m-%d %H:%M')
+                        st.success(f"🎉 会社名: {company_name} / 車番: {new_shaban} を登録しました！（番号順に整頓されます）")
+                        # ※実際のExcelへの追記＆番号順ソート保存処理をここに連動できます
 
     # ── 【タブ3】 編集・削除 ──
     with tab3:

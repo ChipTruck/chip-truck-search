@@ -57,15 +57,26 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# セッション状態の安全な初期化
-if "search_input_val" not in st.session_state:
-    st.session_state.search_input_val = ""
+# セッション状態の初期化
+if "search_box_main" not in st.session_state:
+    st.session_state.search_box_main = ""
+if "pending_key" not in st.session_state:
+    st.session_state.pending_key = None
 if "active_card_key" not in st.session_state:
     st.session_state.active_card_key = None
 if "scanned_shaban" not in st.session_state:
     st.session_state.scanned_shaban = ""
 if "scanned_detail" not in st.session_state:
     st.session_state.scanned_detail = ""
+
+# テンキーで押された文字を入力欄の生成前（最上部）で安全に反映
+if st.session_state.pending_key is not None:
+    if st.session_state.pending_key == "CLEAR":
+        st.session_state.search_box_main = ""
+    else:
+        st.session_state.search_box_main = str(st.session_state.get("search_box_main", "")) + str(st.session_state.pending_key)
+    st.session_state.pending_key = None
+    st.session_state.active_card_key = None
 
 # Excelファイルのパス
 FILE_PATH = "新_登録車両資料_連動版.xlsx"
@@ -136,7 +147,7 @@ try:
     with col_home:
         st.write("") 
         if st.button("🏠 ホーム", use_container_width=True):
-            st.session_state.search_input_val = ""
+            st.session_state.search_box_main = ""
             st.session_state.active_card_key = None
             st.session_state.scanned_shaban = ""
             st.session_state.scanned_detail = ""
@@ -148,56 +159,44 @@ try:
     with tab1:
         st.write("車番の数字で素早く検索できます。")
 
-        # テンキー処理用の安全な関数（KeyErrorを完全防止）
-        def press_key(digit_str):
-            current = st.session_state.get("search_input_val", "")
-            st.session_state.search_input_val = str(current) + str(digit_str)
-            st.session_state.active_card_key = None
-            st.rerun()
-
-        def do_clear():
-            st.session_state.search_input_val = ""
-            st.session_state.active_card_key = None
-            st.rerun()
-
-        # 入力ボックス（手入力もテンキー入力もここに完全に同期）
-        input_text = st.text_input(
+        # 入力ボックス（手入力もテンキー入力もここに確実に同期）
+        st.text_input(
             "🔍 車番を入力（例: 1, 8, 14 など）", 
-            value=st.session_state.get("search_input_val", ""),
-            key="user_text_input"
+            key="search_box_main"
         )
-        # キーボード直接入力があった場合は変数を同期
-        if input_text != st.session_state.get("search_input_val", ""):
-            st.session_state.search_input_val = input_text
 
-        # テンキー操作（1〜9, 0, 🎤マイク, クリア, 番号決定）
+        # テンキー操作（押すと即座に上の入力欄に文字が入る仕組み）
+        def on_num_click(val):
+            st.session_state.pending_key = val
+            st.rerun()
+
         with st.expander("🔢 テンキー入力を開く", expanded=True):
             r1c1, r1c2, r1c3 = st.columns(3)
-            if r1c1.button("1", use_container_width=True): press_key("1")
-            if r1c2.button("2", use_container_width=True): press_key("2")
-            if r1c3.button("3", use_container_width=True): press_key("3")
+            if r1c1.button("1", use_container_width=True): on_num_click("1")
+            if r1c2.button("2", use_container_width=True): on_num_click("2")
+            if r1c3.button("3", use_container_width=True): on_num_click("3")
 
             r2c1, r2c2, r2c3 = st.columns(3)
-            if r2c1.button("4", use_container_width=True): press_key("4")
-            if r2c2.button("5", use_container_width=True): press_key("5")
-            if r2c3.button("6", use_container_width=True): press_key("6")
+            if r2c1.button("4", use_container_width=True): on_num_click("4")
+            if r2c2.button("5", use_container_width=True): on_num_click("5")
+            if r2c3.button("6", use_container_width=True): on_num_click("6")
 
             r3c1, r3c2, r3c3 = st.columns(3)
-            if r3c1.button("7", use_container_width=True): press_key("7")
-            if r3c2.button("8", use_container_width=True): press_key("8")
-            if r3c3.button("9", use_container_width=True): press_key("9")
+            if r3c1.button("7", use_container_width=True): on_num_click("7")
+            if r3c2.button("8", use_container_width=True): on_num_click("8")
+            if r3c3.button("9", use_container_width=True): on_num_click("9")
 
             r4c1, r4c2, r4c3 = st.columns(3)
-            if r4c1.button("0", use_container_width=True): press_key("0")
+            if r4c1.button("0", use_container_width=True): on_num_click("0")
             if r4c2.button("🎤 音声入力", use_container_width=True): 
                 st.info("💡 スマホキーボードのマイクアイコンから直接音声入力できます！")
-            if r4c3.button("クリア", use_container_width=True): do_clear()
+            if r4c3.button("クリア", use_container_width=True): on_num_click("CLEAR")
 
             if st.button("🔍 番号決定（検索実行）", use_container_width=True, type="primary"):
                 st.session_state.active_card_key = None
                 st.rerun()
 
-        search_val = st.session_state.get("search_input_val", "")
+        search_val = st.session_state.get("search_box_main", "").strip()
         filtered_df = df_base.copy()
         is_searched = bool(search_val)
 
@@ -219,7 +218,7 @@ try:
         display_cols = [c for c in ['会社名', '車番', '入力番号', '詳細', '備考', '風体'] if c in filtered_df.columns]
         display_df = filtered_df[display_cols].copy()
 
-        # 最初はいつでも見慣れたチャート表
+        # チャート表用（同一会社の重複を空白化）
         table_df = display_df.copy()
         if '会社名' in table_df.columns:
             table_df['会社名'] = table_df['会社名'].mask(table_df['会社名'] == table_df['会社名'].shift(), '')
@@ -229,15 +228,14 @@ try:
         else:
             st.write(f"全車両一覧: **{len(filtered_df)}** 行")
 
-        # ── チャート表（スプレッドシート形式） ──
+        # ── ① チャート表（一覧表） ──
         st.dataframe(table_df, use_container_width=True, hide_index=True)
 
-        # ── 検索結果が出ている時：残った車のボタンを並べる ──
+        # ── ② 検索結果が出ている時：該当車両を押すとカード表示 ──
         if is_searched and len(filtered_df) > 0:
             st.write("---")
             st.markdown("##### 👆 車両を押すとカードで詳細が出ます")
             
-            # 各車両を押しやすいボタンとして表示
             cols = st.columns(2)
             for idx, (_, row) in enumerate(filtered_df.iterrows()):
                 shaban_txt = row.get('車番', '-')
@@ -248,7 +246,7 @@ try:
                     st.session_state.active_card_key = idx
                     st.rerun()
 
-            # ボタンが押されたら、その車両のカードを下に大きく出す
+            # 選択された車両をカードで大きく表示
             current_active = st.session_state.get("active_card_key", None)
             if current_active is not None and current_active < len(filtered_df):
                 target_row = filtered_df.iloc[current_active]
@@ -264,7 +262,7 @@ try:
                 """
                 st.markdown(card_html, unsafe_allow_html=True)
 
-    # ── 【タブ2】 新規登録（決めてからカードで入力） ──
+    # ── 【タブ2】 新規登録（会社を決めてからカード入力） ──
     with tab2:
         st.subheader("➕ 新規車両の登録")
         
@@ -331,7 +329,7 @@ try:
                     if c1.form_submit_button("🔄 変更を保存", type="primary"):
                         st.success("✅ カードの内容で変更を保存しました！")
                     if c2.form_submit_button("🗑 この車両を削除"):
-                        st.warning("⚠️ データを削除しました。")
+                        st.warning("⚠️️ データを削除しました。")
             else:
                 st.info("該当する車両が見つかりませんでした。")
 

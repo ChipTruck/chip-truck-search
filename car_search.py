@@ -117,39 +117,59 @@ try:
     with tab1:
         st.write("車番の数字で素早く検索できます。")
 
-        def add_char(char):
-            st.session_state.search_query += char
-
-        def clear_query():
-            st.session_state.search_query = ""
-
-        current_query = st.text_input(
-            "🔍 検索ワード（下のテンキーで入力できます）", 
+        # 通常の入力ボックス（直接キーボード入力も可能）
+        user_input = st.text_input(
+            "🔍 車番を入力（例: 1, 8, 14 など）", 
             value=st.session_state.search_query,
-            key="search_display_box",
-            disabled=True
+            key="search_box_main"
         )
+        if user_input != st.session_state.search_query:
+            st.session_state.search_query = user_input
 
-        with st.expander("🔢 テンキー入力を開く（タップで入力）", expanded=True):
+        # テンキー操作（1〜9, 0, 🎤マイク, クリア）
+        with st.expander("🔢 テンキー入力を開く", expanded=False):
             r1c1, r1c2, r1c3 = st.columns(3)
-            r1c1.button("1", use_container_width=True, on_click=add_char, args=("1",))
-            r1c2.button("2", use_container_width=True, on_click=add_char, args=("2",))
-            r1c3.button("3", use_container_width=True, on_click=add_char, args=("3",))
+            if r1c1.button("1", use_container_width=True): 
+                st.session_state.search_query += "1"
+                st.rerun()
+            if r1c2.button("2", use_container_width=True): 
+                st.session_state.search_query += "2"
+                st.rerun()
+            if r1c3.button("3", use_container_width=True): 
+                st.session_state.search_query += "3"
+                st.rerun()
 
             r2c1, r2c2, r2c3 = st.columns(3)
-            r2c1.button("4", use_container_width=True, on_click=add_char, args=("4",))
-            r2c2.button("5", use_container_width=True, on_click=add_char, args=("5",))
-            r2c3.button("6", use_container_width=True, on_click=add_char, args=("6",))
+            if r2c1.button("4", use_container_width=True): 
+                st.session_state.search_query += "4"
+                st.rerun()
+            if r2c2.button("5", use_container_width=True): 
+                st.session_state.search_query += "5"
+                st.rerun()
+            if r2c3.button("6", use_container_width=True): 
+                st.session_state.search_query += "6"
+                st.rerun()
 
             r3c1, r3c2, r3c3 = st.columns(3)
-            r3c1.button("7", use_container_width=True, on_click=add_char, args=("7",))
-            r3c2.button("8", use_container_width=True, on_click=add_char, args=("8",))
-            r3c3.button("9", use_container_width=True, on_click=add_char, args=("9",))
+            if r3c1.button("7", use_container_width=True): 
+                st.session_state.search_query += "7"
+                st.rerun()
+            if r3c2.button("8", use_container_width=True): 
+                st.session_state.search_query += "8"
+                st.rerun()
+            if r3c3.button("9", use_container_width=True): 
+                st.session_state.search_query += "9"
+                st.rerun()
 
             r4c1, r4c2, r4c3 = st.columns(3)
-            r4c1.button("0", use_container_width=True, on_click=add_char, args=("0",))
-            r4c2.button("🎤 音声検索", use_container_width=True, on_click=lambda: st.toast("音声検索機能は準備中です"))
-            r4c3.button("クリア", use_container_width=True, on_click=clear_query)
+            if r4c1.button("0", use_container_width=True): 
+                st.session_state.search_query += "0"
+                st.rerun()
+            if r4c2.button("🎤 音声検索", use_container_width=True): 
+                st.info("💡 スマホのキーボードにあるマイクボタンを押すと、音声で直接車番を入力できます！")
+            if r4c3.button("クリア", use_container_width=True): 
+                st.session_state.search_query = ""
+                st.rerun()
 
         filtered_df = df_base.copy()
         is_searched = False

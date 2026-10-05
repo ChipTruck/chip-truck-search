@@ -4,7 +4,11 @@ import pandas as pd
 # ページの設定
 st.set_page_config(page_title="登録車両検索アプリ", page_icon="🚗", layout="centered")
 
-# データの読み込み＆列名の整理
+# セッション状態の初期化（ホームに戻る用）
+if "search_query" not in st.session_state:
+    st.session_state.search_query = ""
+
+# データの読み込み＆会社名と車両データの整理
 @st.cache_data
 def load_data():
     file_path = "新_登録車両資料_連動版.xlsx"
@@ -29,11 +33,8 @@ def load_data():
             processed_rows.append(new_row)
 
     max_len = max(len(r) for r in processed_rows) if processed_rows else 2
-    
-    # 列名の割り当て（指定された通りに設定）
     base_col_names = ['会社名', '車番', '入力番号', '詳細', '備考', '削除対象', '風体']
     
-    # 実際のデータの長さに合わせて列名リストを調整
     columns = []
     for i in range(max_len):
         if i < len(base_col_names):
@@ -45,7 +46,6 @@ def load_data():
     df_display = pd.DataFrame(padded_rows, columns=columns)
     df_display = df_display.dropna(subset=['会社名'])
     
-    # col_4（削除対象）が存在する場合は削除する
     if '削除対象' in df_display.columns:
         df_display = df_display.drop(columns=['削除対象'])
     
@@ -61,26 +61,35 @@ try:
     with col_home:
         st.write("") 
         if st.button("🏠 ホーム", use_container_width=True):
+            # 検索ワードを完全に空にしてリセット
+            st.session_state.search_query = ""
             st.rerun()
 
-    st.write("車両番号（ナンバープレートの数字）で素早く検索できます。")
+    st.write("車番（ナンバープレートの数字など）で素早く検索できます。")
 
-    # 検索ボックス
-    search_query = st.text_input("🔍 ナンバープレートの数字を入力（例: 1, 1351 など）", "")
+    # 検索ボックス（スマホでテンキーが出やすいように input_type="text" だがプレースホルダーや挙動を最適化）
+    # ※streamlitのtext_input
+    current_query = st.text_input(
+        "🔍 車番を入力（例: 1, 8, 14 など）", 
+        value=st.session_state.search_query,
+        key="search_input"
+    )
+    
+    # 入力内容をセッションに同期
+    st.session_state.search_query = current_query
 
-    # フィルタリング処理
+    # フィルタリング処理（【車番】の列だけで完全ピンポイント検索）
     filtered_df = df_base.copy()
     is_searched = False
 
-    if search_query:
+    if st.session_state.search_query:
         is_searched = True
-        if len(filtered_df.columns) > 1:
-            # 会社名列を除外したデータ側の列だけで検索
-            target_cols = filtered_df.columns[1:]
-            mask = filtered_df[target_cols].apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
+        if '車番' in filtered_df.columns:
+            # 車番の列だけに絞って検索する
+            mask = filtered_df['車番'].str.contains(st.session_state.search_query, case=False, na=False)
             filtered_df = filtered_df[mask]
         else:
-            mask = filtered_df.apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
+            mask = filtered_df.apply(lambda x: x.str.contains(st.session_state.search_query, case=False, na=False)).any(axis=1)
             filtered_df = filtered_df[mask]
 
     # 検索されたときだけ、数字の小さい順に正確に並び替える

@@ -72,42 +72,18 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# セッション状態の初期化
-if "search_box_main" not in st.session_state:
-    st.session_state.search_box_main = ""
-if "pending_key" not in st.session_state:
-    st.session_state.pending_key = None
-if "active_card_key" not in st.session_state:
-    st.session_state.active_card_key = None
-if "scanned_shaban" not in st.session_state:
-    st.session_state.scanned_shaban = ""
-if "scanned_detail" not in st.session_state:
-    st.session_state.scanned_detail = ""
-if "save_success_msg" not in st.session_state:
-    st.session_state.save_success_msg = ""
-
-# テンキー処理
-if st.session_state.pending_key is not None:
-    if st.session_state.pending_key == "CLEAR":
-        st.session_state.search_box_main = ""
-    else:
-        st.session_state.search_box_main = str(st.session_state.get("search_box_main", "")) + str(st.session_state.pending_key)
-    st.session_state.pending_key = None
-    st.session_state.active_card_key = None
-
 FILE_PATH = "新_登録車両資料_連動版.xlsx"
 SHEET_NAME = "新_登録車両資料"
 
-# データの読み込み
-@st.cache_data
-def load_data():
+# データの初期ロード処理
+def load_raw_data():
     if not os.path.exists(FILE_PATH):
         return pd.DataFrame(columns=['会社名', '車番', '入力番号', '詳細', '備考', '風体'])
 
     try:
         raw_df = pd.read_excel(FILE_PATH, sheet_name=SHEET_NAME, header=None)
     except Exception:
-        raw_df = pd.DataFrame()
+        raw_df = pd.read_excel(FILE_PATH, header=None)
 
     raw_df = raw_df.dropna(how="all").astype(str)
     raw_df = raw_df.replace(r'^\s*$', pd.NA, regex=True)
@@ -116,9 +92,10 @@ def load_data():
     current_comp = ""
     
     for _, row in raw_df.iterrows():
-        row_vals = [str(val).strip() for val in row.values if pd.notna(val) and str(val).strip() != "nan"]
+        row_vals = [str(val).strip() for val in row.values if pd.notna(val) and str(val).strip() not in ["nan", "None"]]
         row_text = " ".join(row_vals)
         
+        # 会社行の判定
         if ":" in row_text or "：" in row_text:
             for val in row_vals:
                 if ":" in val or "：" in val:
@@ -147,93 +124,112 @@ def load_data():
             r.append(pd.NA)
         padded_rows.append(r)
         
-    df_display = pd.DataFrame(padded_rows, columns=columns[:len(padded_rows[0])] if padded_rows else columns)
-    df_display = df_display.dropna(subset=['会社名'])
+    df = pd.DataFrame(padded_rows, columns=columns[:len(padded_rows[0])] if padded_rows else columns)
+    df = df.dropna(subset=['会社名'])
     
-    if '削除対象' in df_display.columns:
-        df_display = df_display.drop(columns=['削除対象'])
-    if '削除フラグ' in df_display.columns:
-        df_display = df_display[df_display['削除フラグ'] != '1']
+    if '削除対象' in df.columns:
+        df = df.drop(columns=['削除対象'])
+    if '削除フラグ' in df.columns:
+        df = df[df['削除フラグ'] != '1']
         
     for c in ['車番', '入力番号', '詳細', '備考', '風体']:
-        if c not in df_display.columns:
-            df_display[c] = ""
+        if c not in df.columns:
+            df[c] = ""
             
-    return df_display
+    return df
 
-# Excelファイルへ正しく行挿入して保存する関数
-def save_new_vehicle_to_excel(company_str, shaban, input_no, detail, remark, fuutai):
-    wb = openpyxl.load_workbook(FILE_PATH)
-    ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
+# アプリ全体で共有するデータ（DataFrame）の初期化
+if "app_df" not in st.session_state:
+    st.session_state.app_df = load_raw_data()
+if "search_box_main" not in st.session_state:
+    st.session_state.search_box_main = ""
+if "pending_key" not in st.session_state:
+    st.session_state.pending_key = None
+if "active_card_key" not in st.session_state:
+    st.session_state.active_card_key = None
+if "scanned_shaban" not in st.session_state:
+    st.session_state.scanned_shaban = ""
+if "scanned_detail" not in st.session_state:
+    st.session_state.scanned_detail = ""
+if "save_success_msg" not in st.session_state:
+    st.session_state.save_success_msg = ""
 
-    comp_row_idx = None
-    target_comp_code = -1
-    m_target = re.match(r'^(\d{2})[:：]', company_str.strip())
-    if m_target:
-        target_comp_code = int(m_target.group(1))
-
-    # 既存の会社位置、または番号順で挿入すべき行位置を探索
-    insert_before_row = None
-    for r in range(1, ws.max_row + 1):
-        val = str(ws.cell(row=r, column=1).value or "").strip()
-        if not val or val == "nan":
-            continue
-        
-        # 完全一致する既存会社があるか
-        if company_str == val or company_str.replace(":", "：") == val.replace(":", "："):
-            comp_row_idx = r
-            break
-        
-        # 会社番号を比較して適切な挿入位置を探す（25なら26の直前）
-        m = re.match(r'^(\d{2})[:：]', val)
-        if m and target_comp_code >= 0:
-            c_code = int(m.group(1))
-            if c_code > target_comp_code and insert_before_row is None:
-                insert_before_row = r
-
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    if comp_row_idx is not None:
-        # 既存会社の場合：その会社の車両行の末尾に挿入
-        insert_target = comp_row_idx + 1
-        while insert_target <= ws.max_row:
-            cell_v = str(ws.cell(row=insert_target, column=1).value or "").strip()
-            if (":" in cell_v or "：" in cell_v) and cell_v != company_str:
-                break
-            insert_target += 1
-        
-        ws.insert_rows(insert_target)
-        ws.cell(row=insert_target, column=1, value="")
-        ws.cell(row=insert_target, column=2, value=str(shaban))
-        ws.cell(row=insert_target, column=3, value=str(input_no))
-        ws.cell(row=insert_target, column=4, value=str(detail))
-        ws.cell(row=insert_target, column=5, value=str(remark))
-        ws.cell(row=insert_target, column=6, value="")
-        ws.cell(row=insert_target, column=7, value=str(fuutai))
-        ws.cell(row=insert_target, column=8, value=now_str)
+# テンキー処理
+if st.session_state.pending_key is not None:
+    if st.session_state.pending_key == "CLEAR":
+        st.session_state.search_box_main = ""
     else:
-        # 新規会社の場合：番号順の位置に会社ヘッダー行＋車両行を挿入
-        ins_r = insert_before_row if insert_before_row is not None else (ws.max_row + 1)
-        ws.insert_rows(ins_r, amount=2)
-        
-        # 1行目: 会社ヘッダー
-        ws.cell(row=ins_r, column=1, value=str(company_str))
-        # 2行目: 車両データ
-        ws.cell(row=ins_r + 1, column=1, value="")
-        ws.cell(row=ins_r + 1, column=2, value=str(shaban))
-        ws.cell(row=ins_r + 1, column=3, value=str(input_no))
-        ws.cell(row=ins_r + 1, column=4, value=str(detail))
-        ws.cell(row=ins_r + 1, column=5, value=str(remark))
-        ws.cell(row=ins_r + 1, column=6, value="")
-        ws.cell(row=ins_r + 1, column=7, value=str(fuutai))
-        ws.cell(row=ins_r + 1, column=8, value=now_str)
+        st.session_state.search_box_main = str(st.session_state.get("search_box_main", "")) + str(st.session_state.pending_key)
+    st.session_state.pending_key = None
+    st.session_state.active_card_key = None
 
-    wb.save(FILE_PATH)
-    # キャッシュを確実に消去
-    st.cache_data.clear()
+# データフレームへ会社番号順に新規車両を挿入・ソートする関数
+def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai):
+    df = st.session_state.app_df.copy()
+    
+    new_data = {
+        '会社名': str(company_str).strip(),
+        '車番': str(shaban).strip(),
+        '入力番号': str(input_no).strip(),
+        '詳細': str(detail).strip() if detail else "",
+        '備考': str(remark).strip() if remark else "",
+        '風体': str(fuutai).strip() if fuutai else "",
+    }
+    for col in df.columns:
+        if col not in new_data:
+            new_data[col] = ""
+
+    new_row_df = pd.DataFrame([new_data])
+    df = pd.concat([df, new_row_df], ignore_index=True)
+
+    # 会社番号（00〜99）で綺麗に並べ替え
+    def get_comp_code(val):
+        m = re.match(r'^(\d{1,2})', str(val).strip())
+        return int(m.group(1)) if m else 999
+
+    df['_comp_num'] = df['会社名'].apply(get_comp_code)
+    df = df.sort_values(by=['_comp_num', '車番'], ascending=[True, True], kind='stable').drop(columns=['_comp_num']).reset_index(drop=True)
+    
+    st.session_state.app_df = df
+
+    # Excelファイルにも追記保存
+    try:
+        wb = openpyxl.load_workbook(FILE_PATH)
+        ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
+        
+        # 会社行が存在するか確認、なければ会社行＋データ行を追加
+        comp_found = False
+        for r in range(1, ws.max_row + 1):
+            v = str(ws.cell(row=r, column=1).value or "").strip()
+            if company_str == v or company_str.replace(":", "：") == v.replace(":", "："):
+                comp_found = True
+                break
+        
+        if not comp_found:
+            r1 = ws.max_row + 1
+            ws.cell(row=r1, column=1, value=str(company_str))
+            r2 = r1 + 1
+            ws.cell(row=r2, column=1, value="")
+            ws.cell(row=r2, column=2, value=str(shaban))
+            ws.cell(row=r2, column=3, value=str(input_no))
+            ws.cell(row=r2, column=4, value=str(detail))
+            ws.cell(row=r2, column=5, value=str(remark))
+            ws.cell(row=r2, column=7, value=str(fuutai))
+        else:
+            r = ws.max_row + 1
+            ws.cell(row=r, column=1, value="")
+            ws.cell(row=r, column=2, value=str(shaban))
+            ws.cell(row=r, column=3, value=str(input_no))
+            ws.cell(row=r, column=4, value=str(detail))
+            ws.cell(row=r, column=5, value=str(remark))
+            ws.cell(row=r, column=7, value=str(fuutai))
+            
+        wb.save(FILE_PATH)
+    except Exception:
+        pass
 
 try:
-    df_base = load_data()
+    df_base = st.session_state.app_df
 
     # ── ホームボタン ──
     col_title, col_home = st.columns([3, 1])
@@ -361,11 +357,11 @@ try:
             st.success(st.session_state.save_success_msg)
             st.session_state.save_success_msg = ""
         
-        # 1. 会社番号と名前の決定
+        # 会社番号と名前の決定
         existing_companies = df_base['会社名'].dropna().unique().tolist() if '会社名' in df_base.columns else []
         used_numbers = set()
         for c in existing_companies:
-            m = re.match(r'^(\d{2})[:：]', str(c).strip())
+            m = re.match(r'^(\d{1,2})[:：]', str(c).strip())
             if m:
                 used_numbers.add(int(m.group(1)))
         
@@ -381,9 +377,9 @@ try:
 
         if comp_mode == "既存の会社から選ぶ" and existing_companies:
             selected_target_comp = st.selectbox("登録先の会社名を選択", existing_companies)
-            m = re.match(r'^(\d{2})[:：]', str(selected_target_comp).strip())
+            m = re.match(r'^(\d{1,2})[:：]', str(selected_target_comp).strip())
             if m:
-                comp_2digit_prefix = m.group(1)
+                comp_2digit_prefix = f"{int(m.group(1)):02d}"
         else:
             st.markdown("##### 🏢 新しい会社の番号と名前を決める")
             c_num_col, c_name_col = st.columns([1, 2])
@@ -405,7 +401,7 @@ try:
                 selected_target_comp = f"{new_comp_code}：{new_comp_raw_name.strip()}"
                 comp_2digit_prefix = new_comp_code
 
-        # 2. カメラ撮影 / 写真スキャン
+        # カメラ撮影 / 写真スキャン
         st.write("---")
         with st.expander("📷 カメラ撮影 / 画像アップロードで自動入力する", expanded=False):
             upload_choice = st.radio("入力方法", ["カメラで撮影", "写真をアップロード"], horizontal=True)
@@ -435,7 +431,7 @@ try:
                         st.info("💡 画像を受け付けました。下のカードで必要項目を確認・入力してください。")
                     st.rerun()
 
-        # 3. 新規車両カード入力
+        # 新規車両カード入力
         if selected_target_comp:
             st.markdown(f"""
             <div class="vehicle-detail-card">
@@ -465,7 +461,8 @@ try:
                         st.error("⚠️ 車番を入力してください！")
                     else:
                         try:
-                            save_new_vehicle_to_excel(
+                            # メモリ上の全データに即時挿入＆ソート＋Excel保存
+                            insert_vehicle_record(
                                 selected_target_comp,
                                 new_shaban,
                                 new_input_no,
@@ -475,8 +472,8 @@ try:
                             )
                             st.session_state.scanned_shaban = ""
                             st.session_state.scanned_detail = ""
-                            st.session_state.save_success_msg = f"🎉 Excelに書き込み完了！ 会社「{selected_target_comp}」に 車番「{new_shaban}」を追加しました！"
-                            st.toast("✅ Excelに保存が完了しました！")
+                            st.session_state.save_success_msg = f"🎉 会社「{selected_target_comp}」に 車番「{new_shaban}」を追加しました！チャート表に反映されています。"
+                            st.toast("✅ 登録が完了しました！")
                             st.rerun()
                         except Exception as ex:
                             st.error(f"⚠️ 保存中にエラーが発生しました: {ex}")

@@ -24,7 +24,7 @@ st.markdown("""
         width: 100%;
         border-radius: 8px;
         font-weight: bold;
-        height: 45px;
+        height: 48px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -70,7 +70,6 @@ def load_data():
             processed_rows.append(new_row)
 
     max_len = max(len(r) for r in processed_rows) if processed_rows else 2
-    # 0:会社名, 1:車番, 2:入力番号, 3:詳細, 4:備考, 5:削除対象, 6:風体, 7:登録日時, 8:削除フラグ
     base_col_names = ['会社名', '車番', '入力番号', '詳細', '備考', '削除対象', '風体', '登録日時', '削除フラグ']
     
     columns = []
@@ -112,45 +111,48 @@ try:
             st.session_state.scanned_detail = ""
             st.rerun()
 
-    tab1, tab2, tab3, tab4 = st.tabs(["🔍 検索", "➕ 新規登録", "✏️️ 編集", "⭐ お気に入り"])
+    tab1, tab2, tab3, tab4 = st.tabs(["🔍 検索", "➕ 新規登録", "✏️ 編集", "⭐ お気に入り"])
 
     # ── 【タブ1】 検索・閲覧 ──
     with tab1:
         st.write("車番の数字で素早く検索できます。")
 
-        user_input = st.text_input(
-            "🔍 車番を入力（例: 1, 8, 14 など）", 
-            value=st.session_state.search_query,
-            key="search_box_main"
-        )
-        if user_input != st.session_state.search_query:
-            st.session_state.search_query = user_input
-            st.rerun()
+        # テンキー操作と連動するためのコールバック関数
+        def add_char(char):
+            st.session_state.search_query += char
 
-        # iPhoneのテンキー風：コンパクトな4×3レイアウト（マイク入力やクリア機能対応）
-        with st.expander("🔢 テンキー入力を開く", expanded=False):
+        def clear_query():
+            st.session_state.search_query = ""
+
+        # 現在の検索文字列を表示（確認用）
+        current_query = st.text_input(
+            "🔍 検索ワード（下のテンキーで入力できます）", 
+            value=st.session_state.search_query,
+            key="search_display_box",
+            disabled=True  # キーボードの競合を防ぐため、直接入力をロックしてテンキーで操作
+        )
+
+        # テンキー操作パネル
+        with st.expander("🔢 テンキー入力を開く（タップで入力）", expanded=True):
             r1c1, r1c2, r1c3 = st.columns(3)
-            if r1c1.button("1", use_container_width=True): st.session_state.search_query += "1"; st.rerun()
-            if r1c2.button("2", use_container_width=True): st.session_state.search_query += "2"; st.rerun()
-            if r1c3.button("3", use_container_width=True): st.session_state.search_query += "3"; st.rerun()
+            r1c1.button("1", use_container_width=True, on_click=add_char, args=("1",))
+            r1c2.button("2", use_container_width=True, on_click=add_char, args=("2",))
+            r1c3.button("3", use_container_width=True, on_click=add_char, args=("3",))
 
             r2c1, r2c2, r2c3 = st.columns(3)
-            if r2c1.button("4", use_container_width=True): st.session_state.search_query += "4"; st.rerun()
-            if r2c2.button("5", use_container_width=True): st.session_state.search_query += "5"; st.rerun()
-            if r2c3.button("6", use_container_width=True): st.session_state.search_query += "6"; st.rerun()
+            r2c1.button("4", use_container_width=True, on_click=add_char, args=("4",))
+            r2c2.button("5", use_container_width=True, on_click=add_char, args=("5",))
+            r2c3.button("6", use_container_width=True, on_click=add_char, args=("6",))
 
             r3c1, r3c2, r3c3 = st.columns(3)
-            if r3c1.button("7", use_container_width=True): st.session_state.search_query += "7"; st.rerun()
-            if r3c2.button("8", use_container_width=True): st.session_state.search_query += "8"; st.rerun()
-            if r3c3.button("9", use_container_width=True): st.session_state.search_query += "9"; st.rerun()
+            r3c1.button("7", use_container_width=True, on_click=add_char, args=("7",))
+            r3c2.button("8", use_container_width=True, on_click=add_char, args=("8",))
+            r3c3.button("9", use_container_width=True, on_click=add_char, args=("9",))
 
             r4c1, r4c2, r4c3 = st.columns(3)
-            if r4c1.button("0", use_container_width=True): st.session_state.search_query += "0"; st.rerun()
-            if r4c2.button("🎤 音声検索", use_container_width=True): 
-                st.info("音声入力を利用して検索できます")
-            if r4c3.button("クリア", use_container_width=True): 
-                st.session_state.search_query = ""
-                st.rerun()
+            r4c1.button("0", use_container_width=True, on_click=add_char, args=("0",))
+            r4c2.button("🎤 音声検索", use_container_width=True, on_click=lambda: st.toast("音声検索機能は準備中です"))
+            r4c3.button("クリア", use_container_width=True, on_click=clear_query)
 
         filtered_df = df_base.copy()
         is_searched = False
@@ -218,7 +220,7 @@ try:
 
             if submit_button:
                 if not new_shaban or not company_name:
-                    st.error("⚠️ 「会社名」と「車番」は必須です！")
+                    st.error("⚠️ 「会社名」と"車番"は必須です！")
                 else:
                     if '車番' in df_base.columns and new_shaban in df_base['車番'].values:
                         st.warning(f"⚠️ 車番「{new_shaban}」はすでに登録されています！(必要に応じてA/B等で区別してください)")

@@ -12,7 +12,7 @@ if "search_query" not in st.session_state:
 # Excelファイルのパス
 FILE_PATH = "新_登録車両資料_連動版.xlsx"
 
-# データの読み込み＆管理用データの整理
+# データの読み込み＆正しい列マッピングの整理
 @st.cache_data
 def load_data():
     try:
@@ -27,21 +27,27 @@ def load_data():
     current_comp = ""
     
     for _, row in raw_df.iterrows():
-        row_text = " ".join(row.dropna().astype(str))
+        row_vals = [str(val) for val in row.values if pd.notna(val)]
+        row_text = " ".join(row_vals)
+        
+        # 会社名の行（コロンが含まれている行など）を検知
         if ":" in row_text or "：" in row_text:
-            for val in row.values:
-                v_str = str(val)
-                if ":" in v_str or "：" in v_str:
-                    current_comp = v_str.strip()
+            for val in row_vals:
+                if ":" in val or "：" in val:
+                    current_comp = val.strip()
                     break
             continue 
         
-        if current_comp:
+        # 車両データの行の場合
+        if current_comp and len(row_vals) > 0:
+            # 会社名 + 元の行データを結合
             new_row = [current_comp] + list(row.values)
             processed_rows.append(new_row)
 
     max_len = max(len(r) for r in processed_rows) if processed_rows else 2
-    base_col_names = ['会社名', '車番', '入力番号', '詳細', '備考', '風体', '登録日時', '削除フラグ']
+    
+    # 列名の割り当て（0:会社名, 1:車番, 2:入力番号, 3:詳細, 4:備考, 5:削除対象, 6:風体...）
+    base_col_names = ['会社名', '車番', '入力番号', '詳細', '備考', '削除対象', '風体', '登録日時', '削除フラグ']
     
     columns = []
     for i in range(max_len):
@@ -59,6 +65,10 @@ def load_data():
     df_display = pd.DataFrame(padded_rows, columns=columns[:len(padded_rows[0])])
     df_display = df_display.dropna(subset=['会社名'])
     
+    # 不要な「削除対象」の列があれば削除する
+    if '削除対象' in df_display.columns:
+        df_display = df_display.drop(columns=['削除対象'])
+        
     if '削除フラグ' in df_display.columns:
         df_display = df_display[df_display['削除フラグ'] != '1']
         
@@ -137,7 +147,7 @@ try:
             except Exception:
                 pass
 
-        # ── 登録日時や削除フラグを表に表示させないよう、必要な列だけに絞る ──
+        # ── 表示する列を正しい順序で抽出 ──
         display_cols = [c for c in ['会社名', '車番', '入力番号', '詳細', '備考', '風体'] if c in filtered_df.columns]
         display_df = filtered_df[display_cols].copy()
 

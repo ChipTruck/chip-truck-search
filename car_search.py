@@ -33,28 +33,39 @@ try:
     df = load_data()
     target_col = df.columns[1] if len(df.columns) > 1 else df.columns[0]
     
-    # ── 会社名ごとの絞り込みセレクトボックス（画面上部に配置） ──
-    st.subheader("🏢 会社名で絞り込み")
-    categories = ["すべて表示"] + list(df[target_col].unique())
-    # ユーザーがパッと選んで一覧表示できるようにする
-    selected_category = st.selectbox("表示したい会社名を選択してください", categories)
+    st.info("💡下の表から見たい会社の行をクリックすると、その会社の車両に絞り込むことができます！")
 
     # 検索ボックス
     search_query = st.text_input("🔍 キーワード検索（車両番号など）", "")
 
-    # フィルタリング処理
     filtered_df = df
-    if selected_category != "すべて表示":
-        filtered_df = filtered_df[filtered_df[target_col] == selected_category]
-
     if search_query:
         mask = filtered_df.apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
         filtered_df = filtered_df[mask]
 
     st.write(f"検索結果: **{len(filtered_df)}** 件")
 
-    # テーブルとして表示
-    st.dataframe(filtered_df, width="stretch")
+    # ── 表の行をクリックできるようにする設定（on_select） ──
+    event = st.dataframe(
+        filtered_df, 
+        width="stretch",
+        selection_mode="single-row",
+        on_select="rerun",
+        key="car_table"
+    )
+
+    # 表でクリックされた行があるかチェック
+    selected_rows = event.selection.rows
+    if selected_rows:
+        clicked_idx = selected_rows[0]
+        clicked_company = filtered_df.iloc[clicked_idx][target_col]
+        
+        # クリックされた会社のデータだけで再絞り込み
+        st.success(f"🏢 選択中: **{clicked_company}** の車両を表示します")
+        filtered_df = filtered_df[filtered_df[target_col] == clicked_company]
+        
+        # 絞り込んだ結果を再度表示
+        st.dataframe(filtered_df, width="stretch")
 
     # 詳細確認用のセクション（その他のシート）
     st.divider()

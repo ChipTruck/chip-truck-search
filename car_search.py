@@ -36,6 +36,13 @@ if "scanned_shaban" not in st.session_state:
 if "scanned_detail" not in st.session_state:
     st.session_state.scanned_detail = ""
 
+# テンキー用のコールバック関数（※ウィジェット作成前/クリック時に安全に実行される）
+def add_num(digit):
+    st.session_state.search_box_main += str(digit)
+
+def clear_search():
+    st.session_state.search_box_main = ""
+
 # Excelファイルのパス
 FILE_PATH = "新_登録車両資料_連動版.xlsx"
 
@@ -104,8 +111,7 @@ try:
         st.title("🚗 車両管理＆検索")
     with col_home:
         st.write("") 
-        if st.button("🏠 ホーム", use_container_width=True):
-            st.session_state.search_box_main = ""
+        if st.button("🏠 ホーム", use_container_width=True, on_click=clear_search):
             st.session_state.scanned_shaban = ""
             st.session_state.scanned_detail = ""
             st.rerun()
@@ -116,59 +122,35 @@ try:
     with tab1:
         st.write("車番の数字で素早く検索できます。")
 
-        # 入力ボックス（手入力もテンキー入力もここに反映されます）
-        user_input = st.text_input(
+        # 入力ボックス（手入力もテンキー入力もここに同期されます）
+        st.text_input(
             "🔍 車番を入力（例: 1, 8, 14 など）", 
             key="search_box_main"
         )
 
-        # テンキー操作（1〜9, 0, 🎤マイク, クリア, 番号決定）
+        # テンキー操作（on_clickを使うことでStreamlitのエラーを完全回避）
         with st.expander("🔢 テンキー入力を開く", expanded=True):
             r1c1, r1c2, r1c3 = st.columns(3)
-            if r1c1.button("1", use_container_width=True): 
-                st.session_state.search_box_main += "1"
-                st.rerun()
-            if r1c2.button("2", use_container_width=True): 
-                st.session_state.search_box_main += "2"
-                st.rerun()
-            if r1c3.button("3", use_container_width=True): 
-                st.session_state.search_box_main += "3"
-                st.rerun()
+            r1c1.button("1", use_container_width=True, on_click=add_num, args=("1",))
+            r1c2.button("2", use_container_width=True, on_click=add_num, args=("2",))
+            r1c3.button("3", use_container_width=True, on_click=add_num, args=("3",))
 
             r2c1, r2c2, r2c3 = st.columns(3)
-            if r2c1.button("4", use_container_width=True): 
-                st.session_state.search_box_main += "4"
-                st.rerun()
-            if r2c2.button("5", use_container_width=True): 
-                st.session_state.search_box_main += "5"
-                st.rerun()
-            if r2c3.button("6", use_container_width=True): 
-                st.session_state.search_box_main += "6"
-                st.rerun()
+            r2c1.button("4", use_container_width=True, on_click=add_num, args=("4",))
+            r2c2.button("5", use_container_width=True, on_click=add_num, args=("5",))
+            r2c3.button("6", use_container_width=True, on_click=add_num, args=("6",))
 
             r3c1, r3c2, r3c3 = st.columns(3)
-            if r3c1.button("7", use_container_width=True): 
-                st.session_state.search_box_main += "7"
-                st.rerun()
-            if r3c2.button("8", use_container_width=True): 
-                st.session_state.search_box_main += "8"
-                st.rerun()
-            if r3c3.button("9", use_container_width=True): 
-                st.session_state.search_box_main += "9"
-                st.rerun()
+            r3c1.button("7", use_container_width=True, on_click=add_num, args=("7",))
+            r3c2.button("8", use_container_width=True, on_click=add_num, args=("8",))
+            r3c3.button("9", use_container_width=True, on_click=add_num, args=("9",))
 
             r4c1, r4c2, r4c3 = st.columns(3)
-            if r4c1.button("0", use_container_width=True): 
-                st.session_state.search_box_main += "0"
-                st.rerun()
-            if r4c2.button("🎤 音声入力", use_container_width=True): 
-                st.info("💡 スマホのキーボードのマイクを使うか、キーボードから音声入力できます")
-            if r4c3.button("クリア", use_container_width=True): 
-                st.session_state.search_box_main = ""
-                st.rerun()
+            r4c1.button("0", use_container_width=True, on_click=add_num, args=("0",))
+            r4c2.button("🎤 音声入力", use_container_width=True, on_click=lambda: st.toast("スマホのキーボードのマイクから入力できます！"))
+            r4c3.button("クリア", use_container_width=True, on_click=clear_search)
 
-            if st.button("🔍 番号決定（検索実行）", use_container_width=True, type="primary"):
-                st.rerun()
+            st.button("🔍 番号決定（検索実行）", use_container_width=True, type="primary")
 
         search_val = st.session_state.search_box_main
         filtered_df = df_base.copy()

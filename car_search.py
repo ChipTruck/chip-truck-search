@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
+import openpyxl
 import re
+import os
 from datetime import datetime
 
 # ページの設定
@@ -10,7 +12,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# ── スマホでも絶対に3列並びを維持する強制CSS ──
+# ── スマホでも崩れない3列キープCSS ──
 st.markdown("""
     <style>
     h1 {
@@ -20,8 +22,6 @@ st.markdown("""
     [data-testid="stDataFrame"] {
         width: 100% !important;
     }
-    
-    /* スマホで横並びカラムが縦1列に崩れるのを強制防止 */
     div[data-testid="stHorizontalBlock"] {
         display: flex !important;
         flex-direction: row !important;
@@ -32,8 +32,6 @@ st.markdown("""
         flex: 1 1 0% !important;
         min-width: 0 !important;
     }
-    
-    /* テンキーボタンのデザイン */
     div[data-testid="stHorizontalBlock"] button {
         width: 100% !important;
         height: 52px !important;
@@ -42,8 +40,6 @@ st.markdown("""
         border-radius: 8px !important;
         padding: 0 !important;
     }
-    
-    /* カードのスタイル */
     .vehicle-detail-card {
         background-color: #f8f9fa;
         border: 2px solid #1e88e5;
@@ -87,7 +83,7 @@ if "scanned_shaban" not in st.session_state:
 if "scanned_detail" not in st.session_state:
     st.session_state.scanned_detail = ""
 
-# テンキーで押された文字を入力欄の描画前に安全に反映
+# テンキー処理
 if st.session_state.pending_key is not None:
     if st.session_state.pending_key == "CLEAR":
         st.session_state.search_box_main = ""
@@ -96,14 +92,17 @@ if st.session_state.pending_key is not None:
     st.session_state.pending_key = None
     st.session_state.active_card_key = None
 
-# Excelファイルのパス
 FILE_PATH = "新_登録車両資料_連動版.xlsx"
+SHEET_NAME = "新_登録車両資料"
 
-# データの読み込み＆整理
+# データの読み込み
 @st.cache_data
 def load_data():
+    if not os.path.exists(FILE_PATH):
+        return pd.DataFrame(columns=['会社名', '車番', '入力番号', '詳細', '備考', '風体'])
+
     try:
-        raw_df = pd.read_excel(FILE_PATH, sheet_name="新_登録車両資料", header=None)
+        raw_df = pd.read_excel(FILE_PATH, sheet_name=SHEET_NAME, header=None)
     except Exception:
         raw_df = pd.DataFrame()
 
@@ -114,7 +113,7 @@ def load_data():
     current_comp = ""
     
     for _, row in raw_df.iterrows():
-        row_vals = [str(val) for val in row.values if pd.notna(val)]
+        row_vals = [str(val).strip() for val in row.values if pd.notna(val) and str(val).strip() != "nan"]
         row_text = " ".join(row_vals)
         
         if ":" in row_text or "：" in row_text:
@@ -125,7 +124,9 @@ def load_data():
             continue 
         
         if current_comp and len(row_vals) > 0:
-            new_row = [current_comp] + list(row.values)
+            # 元の行データをパディング
+            padded = list(row.values)
+            new_row = [current_comp] + padded
             processed_rows.append(new_row)
 
     max_len = max(len(r) for r in processed_rows) if processed_rows else 2
@@ -144,16 +145,72 @@ def load_data():
             r.append(pd.NA)
         padded_rows.append(r)
         
-    df_display = pd.DataFrame(padded_rows, columns=columns[:len(padded_rows[0])])
+    df_display = pd.DataFrame(padded_rows, columns=columns[:len(padded_rows[0])] if padded_rows else columns)
     df_display = df_display.dropna(subset=['会社名'])
     
     if '削除対象' in df_display.columns:
         df_display = df_display.drop(columns=['削除対象'])
-        
     if '削除フラグ' in df_display.columns:
         df_display = df_display[df_display['削除フラグ'] != '1']
         
+    for c in ['車番', '入力番号', '詳細', '備考', '風体']:
+        if c not in df_display.columns:
+            df_display[c] = ""
+            
     return df_display
+
+# Excelファイルへ実際に新しい会社＆車両を追記・保存する関数
+def save_new_vehicle_to_excel(company_str, shaban, input_no, detail, remark, fuutai):
+    wb = openpyxl.load_workbook(FILE_PATH)
+    ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
+
+    # 既存の行を全走査して会社が存在するか探す
+    comp_row_idx = None
+    last_row = ws.max_row
+    
+    for r in range(1, last_row + 1):
+        val = str(ws.cell(row=r, column=1).value or "").strip()
+        if company_str == val or company_str.replace(":", "：") == val.replace(":", "："):
+            comp_row_idx = r
+            break
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    if comp_row_idx is not None:
+        # 会社がすでにある場合：その会社のブロックの末尾を探して行を挿入
+        insert_target = comp_row_idx + 1
+        while insert_target <= ws.max_row:
+            cell_v = str(ws.cell(row=insert_target, column=1).value or "").strip()
+            if (":" in cell_v or "：" in cell_v) and cell_v != company_str:
+                break
+            insert_target += 1
+        
+        ws.insert_rows(insert_target)
+        ws.cell(row=insert_target, column=1, value="") # 会社名セルは空
+        ws.cell(row=insert_target, column=2, value=str(shaban))
+        ws.cell(row=insert_target, column=3, value=str(input_no))
+        ws.cell(row=insert_target, column=4, value=str(detail))
+        ws.cell(row=insert_target, column=5, value=str(remark))
+        ws.cell(row=insert_target, column=6, value="")
+        ws.cell(row=insert_target, column=7, value=str(fuutai))
+        ws.cell(row=insert_target, column=8, value=now_str)
+    else:
+        # 新しい会社の場合：末尾に会社ヘッダー行＋車両行を追加
+        r1 = ws.max_row + 1
+        ws.cell(row=r1, column=1, value=str(company_str))
+        
+        r2 = r1 + 1
+        ws.cell(row=r2, column=1, value="")
+        ws.cell(row=r2, column=2, value=str(shaban))
+        ws.cell(row=r2, column=3, value=str(input_no))
+        ws.cell(row=r2, column=4, value=str(detail))
+        ws.cell(row=r2, column=5, value=str(remark))
+        ws.cell(row=r2, column=6, value="")
+        ws.cell(row=r2, column=7, value=str(fuutai))
+        ws.cell(row=r2, column=8, value=now_str)
+
+    wb.save(FILE_PATH)
+    load_data.clear() # キャッシュをクリアして即座に画面更新
 
 try:
     df_base = load_data()
@@ -167,8 +224,6 @@ try:
         if st.button("🏠 ホーム", use_container_width=True):
             st.session_state.search_box_main = ""
             st.session_state.active_card_key = None
-            st.session_state.scanned_shaban = ""
-            st.session_state.scanned_detail = ""
             st.rerun()
 
     tab1, tab2, tab3, tab4 = st.tabs(["🔍 検索", "➕ 新規登録", "✏️ 編集", "⭐ お気に入り"])
@@ -219,14 +274,12 @@ try:
 
         if is_searched:
             if '車番' in filtered_df.columns:
-                mask = filtered_df['車番'].str.contains(search_val, case=False, na=False)
+                mask = filtered_df['車番'].astype(str).str.contains(search_val, case=False, na=False)
                 filtered_df = filtered_df[mask]
 
             try:
                 if '車番' in filtered_df.columns:
-                    sort_col = '車番'
-                    filtered_df = filtered_df.copy()
-                    filtered_df['_sort_num'] = pd.to_numeric(filtered_df[sort_col].str.extract(r'(\d+)', expand=False), errors='coerce')
+                    filtered_df['_sort_num'] = pd.to_numeric(filtered_df['車番'].str.extract(r'(\d+)', expand=False), errors='coerce')
                     filtered_df = filtered_df.sort_values(by='_sort_num', ascending=True, na_position='last')
                     filtered_df = filtered_df.drop(columns=['_sort_num'])
             except Exception:
@@ -277,11 +330,10 @@ try:
                 """
                 st.markdown(card_html, unsafe_allow_html=True)
 
-    # ── 【タブ2】 新規登録（会社番号の決定からスタート！） ──
+    # ── 【タブ2】 新規登録（Excel保存連動！） ──
     with tab2:
         st.subheader("➕ 新規車両の登録")
         
-        # 既存の会社一覧と、使われている2桁番号の抽出
         existing_companies = df_base['会社名'].dropna().unique().tolist() if '会社名' in df_base.columns else []
         used_numbers = set()
         for c in existing_companies:
@@ -289,7 +341,6 @@ try:
             if m:
                 used_numbers.add(int(m.group(1)))
         
-        # 次に使える空いている最小の2桁番号を自動計算
         next_avail_num = 0
         while next_avail_num in used_numbers and next_avail_num < 100:
             next_avail_num += 1
@@ -312,12 +363,11 @@ try:
             with c_num_col:
                 new_comp_code = st.text_input("会社番号(2桁)", value=default_2digit, max_chars=2)
             with c_name_col:
-                new_comp_raw_name = st.text_input("会社名（例: 〇〇商事）")
+                new_comp_raw_name = st.text_input("会社名（例: 木村木材）")
 
-            # 2桁の重複・形式チェック
             if new_comp_code:
                 if not new_comp_code.isdigit() or len(new_comp_code) != 2:
-                    st.warning("⚠️ 会社番号は半角数字2桁（00〜99）で入力してください。")
+                    st.warning("⚠️️ 会社番号は半角数字2桁（00〜99）で入力してください。")
                 elif int(new_comp_code) in used_numbers:
                     st.error(f"⚠️ 番号「{new_comp_code}」は既に使われています！別の空き番号を指定してください。")
                 else:
@@ -327,7 +377,6 @@ try:
                 selected_target_comp = f"{new_comp_code}：{new_comp_raw_name.strip()}"
                 comp_2digit_prefix = new_comp_code
 
-        # 会社と番号が決まったら、カード入力フォームを展開
         if selected_target_comp:
             st.markdown(f"""
             <div class="vehicle-detail-card">
@@ -338,10 +387,8 @@ try:
             with st.form("new_vehicle_form_card"):
                 new_shaban = st.text_input("車番 *必須（重複時はA/B等）", value=st.session_state.get("scanned_shaban", ""))
                 
-                # 車両番号が決まれば、入力番号を「会社番号2桁＋車番」として案内
                 default_input_no = f"{comp_2digit_prefix}{new_shaban}" if comp_2digit_prefix and new_shaban else ""
                 new_input_no = st.text_input("入力番号（会社2桁＋車番）", value=default_input_no)
-                
                 new_detail = st.text_input("詳細（例: 岐阜302 も 9418）", value=st.session_state.get("scanned_detail", ""))
                 new_remark = st.text_input("備考（例: 4t車、大型など）")
                 new_fuutai = st.text_input("風体")
@@ -350,7 +397,20 @@ try:
                     if not new_shaban:
                         st.error("⚠️ 車番を入力してください！")
                     else:
-                        st.success(f"🎉 会社「{selected_target_comp}」に 車番「{new_shaban}」（入力番号: {new_input_no}）を登録しました！")
+                        try:
+                            # 実際にExcelファイルに保存！
+                            save_new_vehicle_to_excel(
+                                selected_target_comp,
+                                new_shaban,
+                                new_input_no,
+                                new_detail,
+                                new_remark,
+                                new_fuutai
+                            )
+                            st.success(f"🎉 Excelに書き込み完了！ 会社「{selected_target_comp}」に 車番「{new_shaban}」を追加しました！")
+                            st.rerun()
+                        except Exception as ex:
+                            st.error(f"保存中にエラーが発生しました: {ex}")
 
     # ── 【タブ3】 編集・削除 ──
     with tab3:
@@ -360,7 +420,7 @@ try:
         edit_search_val = st.text_input("編集したい車番を検索", key="edit_search_input")
         
         if edit_search_val:
-            matched = df_base[df_base['車番'].str.contains(edit_search_val, case=False, na=False)]
+            matched = df_base[df_base['車番'].astype(str).str.contains(edit_search_val, case=False, na=False)]
             if len(matched) > 0:
                 car_choices = [f"{r.get('車番', '')} - {r.get('会社名', '')} ({r.get('詳細', '')})" for _, r in matched.iterrows()]
                 selected_edit_car = st.selectbox("編集する車両を決定してください", car_choices)
@@ -384,7 +444,7 @@ try:
 
                     c1, c2 = st.columns(2)
                     if c1.form_submit_button("🔄 変更を保存", type="primary"):
-                        st.success("✅ カードの内容で変更を保存しました！")
+                        st.info("※編集・削除機能のExcel反映も順次拡張可能です！")
                     if c2.form_submit_button("🗑 この車両を削除"):
                         st.warning("⚠️ データを削除しました。")
             else:

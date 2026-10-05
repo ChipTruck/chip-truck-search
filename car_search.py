@@ -4,7 +4,7 @@ import pandas as pd
 # ページの設定
 st.set_page_config(page_title="登録車両検索アプリ", page_icon="🚗", layout="centered")
 
-# セッション状態の初期化（ホームに戻る用）
+# セッション状態の初期化
 if "search_query" not in st.session_state:
     st.session_state.search_query = ""
 
@@ -61,22 +61,50 @@ try:
     with col_home:
         st.write("") 
         if st.button("🏠 ホーム", use_container_width=True):
-            # 検索ワードを完全に空にしてリセット
             st.session_state.search_query = ""
             st.rerun()
 
     st.write("車番（ナンバープレートの数字など）で素早く検索できます。")
 
-    # 検索ボックス（スマホでテンキーが出やすいように input_type="text" だがプレースホルダーや挙動を最適化）
-    # ※streamlitのtext_input
-    current_query = st.text_input(
+    # 通常のテキスト入力欄（キーボード入力用）
+    def update_from_input():
+        st.session_state.search_query = st.session_state.temp_input
+
+    search_query = st.text_input(
         "🔍 車番を入力（例: 1, 8, 14 など）", 
         value=st.session_state.search_query,
-        key="search_input"
+        key="temp_input",
+        on_change=update_from_input
     )
+
+    # ── 画面上のテンキーボタンエリア ──
+    st.write("🔢 **テンキー入力ボタン**")
     
-    # 入力内容をセッションに同期
-    st.session_state.search_query = current_query
+    r1_c1, r1_c2, r1_c3 = st.columns(3)
+    if r1_c1.button("1", use_container_width=True): st.session_state.search_query += "1"; st.rerun()
+    if r1_c2.button("2", use_container_width=True): st.session_state.search_query += "2"; st.rerun()
+    if r1_c3.button("3", use_container_width=True): st.session_state.search_query += "3"; st.rerun()
+
+    r2_c1, r2_c2, r2_c3 = st.columns(3)
+    if r2_c1.button("4", use_container_width=True): st.session_state.search_query += "4"; st.rerun()
+    if r2_c2.button("5", use_container_width=True): st.session_state.search_query += "5"; st.rerun()
+    if r2_c3.button("6", use_container_width=True): st.session_state.search_query += "6"; st.rerun()
+
+    r3_c1, r3_c2, r3_c3 = st.columns(3)
+    if r3_c1.button("7", use_container_width=True): st.session_state.search_query += "7"; st.rerun()
+    if r3_c2.button("8", use_container_width=True): st.session_state.search_query += "8"; st.rerun()
+    if r3_c3.button("9", use_container_width=True): st.session_state.search_query += "9"; st.rerun()
+
+    r4_c1, r4_c2, r4_c3 = st.columns(3)
+    if r4_c1.button("0", use_container_width=True): st.session_state.search_query += "0"; st.rerun()
+    if r4_c2.button("⌫ 1文字消す", use_container_width=True): 
+        st.session_state.search_query = st.session_state.search_query[:-1]
+        st.rerun()
+    if r4_c3.button("クリア", use_container_width=True): 
+        st.session_state.search_query = ""
+        st.rerun()
+
+    st.divider()
 
     # フィルタリング処理（【車番】の列だけで完全ピンポイント検索）
     filtered_df = df_base.copy()
@@ -85,7 +113,6 @@ try:
     if st.session_state.search_query:
         is_searched = True
         if '車番' in filtered_df.columns:
-            # 車番の列だけに絞って検索する
             mask = filtered_df['車番'].str.contains(st.session_state.search_query, case=False, na=False)
             filtered_df = filtered_df[mask]
         else:

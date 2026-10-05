@@ -4,10 +4,6 @@ import pandas as pd
 # ページの設定
 st.set_page_config(page_title="登録車両検索アプリ", page_icon="🚗", layout="centered")
 
-# メインタイトル
-st.title("🚗 登録車両 検索アプリ")
-st.write("車両番号や管理番号、会社名などで素早く検索できます。")
-
 # データの読み込み＆会社名を下に引き継ぐ関数
 @st.cache_data
 def load_data():
@@ -37,25 +33,42 @@ try:
     else:
         df_display = df
 
+    # ── ヘルパー機能：タイトル ＆ ホームに戻るボタン ──
+    col_title, col_home = st.columns([4, 1])
+    with col_title:
+        st.title("🚗 登録車両 検索アプリ")
+    with col_home:
+        st.write("") # 位置調整
+        if st.button("🏠 ホーム", use_container_width=True):
+            # ページをリセットするためにクエリなどをクリアして再読み込み
+            st.rerun()
+
+    st.write("車両番号（ナンバープレートの数字）で素早く検索できます。")
+
     # 検索ボックス
-    search_query = st.text_input("🔍 キーワード検索", "")
+    search_query = st.text_input("🔍 ナンバープレートの数字を入力（例: 1, 1351 など）", "")
 
-    # フィルタリング処理
-    filtered_df = df_display
+    # フィルタリング処理（ナンバープレート・車両番号が入っている主要な列だけで検索）
+    filtered_df = df_display.copy()
     if search_query:
-        mask = filtered_df.apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
-        filtered_df = filtered_df[mask]
+        if len(filtered_df.columns) > 3:
+            # 会社名（0番目）やラベルを除外し、車両番号・ナンバーの主要な数字列（2番目、3番目付近）を対象にする
+            target_cols = [filtered_df.columns[1], filtered_df.columns[2], filtered_df.columns[3]]
+            mask = filtered_df[target_cols].apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
+            filtered_df = filtered_df[mask]
+        else:
+            mask = filtered_df.apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
+            filtered_df = filtered_df[mask]
 
-    # ── 検索結果を数字の小さい順に自動で並び替える（ソート） ──
+    # 検索結果を数字の小さい順に自動で並び替える（ソート）
     try:
-        # 左から3番目の列（車両番号などのデータが入っている列）を数値に変換して小さい順に並べる
-        sort_target_col = filtered_df.columns[2] if len(filtered_df.columns) > 2 else filtered_df.columns[1]
-        filtered_df = filtered_df.copy()
-        filtered_df['_sort_val'] = pd.to_numeric(filtered_df[sort_target_col], errors='coerce')
-        filtered_df = filtered_df.sort_values(by='_sort_val', ascending=True, na_position='last')
-        filtered_df = filtered_df.drop(columns=['_sort_val'])
+        if len(filtered_df.columns) > 2:
+            sort_target_col = filtered_df.columns[2]
+            filtered_df['_sort_val'] = pd.to_numeric(filtered_df[sort_target_col], errors='coerce')
+            filtered_df = filtered_df.sort_values(by='_sort_val', ascending=True, na_position='last')
+            filtered_df = filtered_df.drop(columns=['_sort_val'])
     except Exception:
-        pass  # 万が一数値変換できなくてもそのまま表示する
+        pass
 
     st.write(f"検索結果: **{len(filtered_df)}** 行（数字の小さい順に表示中）")
 

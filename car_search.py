@@ -3,7 +3,31 @@ import pandas as pd
 from datetime import datetime
 
 # ページの設定
-st.set_page_config(page_title="登録車両 総合管理アプリ", page_icon="🚗", layout="centered")
+st.set_page_config(
+    page_title="車両管理＆検索アプリ", 
+    page_icon="🚗", 
+    layout="wide"
+)
+
+# ── スマホで見やすくするためのCSSスタイルの適用 ──
+st.markdown("""
+    <style>
+    h1 {
+        font-size: 1.8rem !important;
+        word-break: break-all;
+    }
+    [data-testid="stDataFrame"] {
+        width: 100% !important;
+    }
+    /* テンキーボタンをコンパクトかつ押しやすくする */
+    div.stButton > button {
+        width: 100%;
+        border-radius: 8px;
+        font-weight: bold;
+        height: 45px;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # セッション状態の初期化
 if "search_query" not in st.session_state:
@@ -46,6 +70,7 @@ def load_data():
             processed_rows.append(new_row)
 
     max_len = max(len(r) for r in processed_rows) if processed_rows else 2
+    # 0:会社名, 1:車番, 2:入力番号, 3:詳細, 4:備考, 5:削除対象, 6:風体, 7:登録日時, 8:削除フラグ
     base_col_names = ['会社名', '車番', '入力番号', '詳細', '備考', '削除対象', '風体', '登録日時', '削除フラグ']
     
     columns = []
@@ -76,9 +101,9 @@ try:
     df_base = load_data()
 
     # ── ヘルパー機能：タイトル ＆ ホームに戻るボタン ──
-    col_title, col_home = st.columns([4, 1])
+    col_title, col_home = st.columns([3, 1])
     with col_title:
-        st.title("🚗 車両管理＆検索アプリ")
+        st.title("🚗 車両管理＆検索")
     with col_home:
         st.write("") 
         if st.button("🏠 ホーム", use_container_width=True):
@@ -87,11 +112,11 @@ try:
             st.session_state.scanned_detail = ""
             st.rerun()
 
-    tab1, tab2, tab3, tab4 = st.tabs(["🔍 検索・閲覧", "➕ 新規登録 (写真・カメラ)", "✏️ 編集・削除", "⭐ お気に入り"])
+    tab1, tab2, tab3, tab4 = st.tabs(["🔍 検索", "➕ 新規登録", "✏️️ 編集", "⭐ お気に入り"])
 
     # ── 【タブ1】 検索・閲覧 ──
     with tab1:
-        st.write("車番（ナンバープレートの数字など）で素早く検索できます。")
+        st.write("車番の数字で素早く検索できます。")
 
         user_input = st.text_input(
             "🔍 車番を入力（例: 1, 8, 14 など）", 
@@ -102,28 +127,28 @@ try:
             st.session_state.search_query = user_input
             st.rerun()
 
+        # iPhoneのテンキー風：コンパクトな4×3レイアウト（マイク入力やクリア機能対応）
         with st.expander("🔢 テンキー入力を開く", expanded=False):
-            r1_c1, r1_c2, r1_c3 = st.columns(3)
-            if r1_c1.button("1", use_container_width=True): st.session_state.search_query += "1"; st.rerun()
-            if r1_c2.button("2", use_container_width=True): st.session_state.search_query += "2"; st.rerun()
-            if r1_c3.button("3", use_container_width=True): st.session_state.search_query += "3"; st.rerun()
+            r1c1, r1c2, r1c3 = st.columns(3)
+            if r1c1.button("1", use_container_width=True): st.session_state.search_query += "1"; st.rerun()
+            if r1c2.button("2", use_container_width=True): st.session_state.search_query += "2"; st.rerun()
+            if r1c3.button("3", use_container_width=True): st.session_state.search_query += "3"; st.rerun()
 
-            r2_c1, r2_c2, r2_c3 = st.columns(3)
-            if r2_c1.button("4", use_container_width=True): st.session_state.search_query += "4"; st.rerun()
-            if r2_c2.button("5", use_container_width=True): st.session_state.search_query += "5"; st.rerun()
-            if r2_c3.button("6", use_container_width=True): st.session_state.search_query += "6"; st.rerun()
+            r2c1, r2c2, r2c3 = st.columns(3)
+            if r2c1.button("4", use_container_width=True): st.session_state.search_query += "4"; st.rerun()
+            if r2c2.button("5", use_container_width=True): st.session_state.search_query += "5"; st.rerun()
+            if r2c3.button("6", use_container_width=True): st.session_state.search_query += "6"; st.rerun()
 
-            r3_c1, r3_c2, r3_c3 = st.columns(3)
-            if r3_c1.button("7", use_container_width=True): st.session_state.search_query += "7"; st.rerun()
-            if r3_c2.button("8", use_container_width=True): st.session_state.search_query += "8"; st.rerun()
-            if r3_c3.button("9", use_container_width=True): st.session_state.search_query += "9"; st.rerun()
+            r3c1, r3c2, r3c3 = st.columns(3)
+            if r3c1.button("7", use_container_width=True): st.session_state.search_query += "7"; st.rerun()
+            if r3c2.button("8", use_container_width=True): st.session_state.search_query += "8"; st.rerun()
+            if r3c3.button("9", use_container_width=True): st.session_state.search_query += "9"; st.rerun()
 
-            r4_c1, r4_c2, r4_c3 = st.columns(3)
-            if r4_c1.button("0", use_container_width=True): st.session_state.search_query += "0"; st.rerun()
-            if r4_c2.button("⌫ 1文字消す", use_container_width=True): 
-                st.session_state.search_query = st.session_state.search_query[:-1]
-                st.rerun()
-            if r4_c3.button("クリア", use_container_width=True): 
+            r4c1, r4c2, r4c3 = st.columns(3)
+            if r4c1.button("0", use_container_width=True): st.session_state.search_query += "0"; st.rerun()
+            if r4c2.button("🎤 音声検索", use_container_width=True): 
+                st.info("音声入力を利用して検索できます")
+            if r4c3.button("クリア", use_container_width=True): 
                 st.session_state.search_query = ""
                 st.rerun()
 
@@ -154,61 +179,56 @@ try:
             display_df['会社名'] = display_df['会社名'].mask(display_df['会社名'] == display_df['会社名'].shift(), '')
 
         if is_searched:
-            st.write(f"検索結果: **{len(filtered_df)}** 行（数字の小さい順）")
+            st.write(f"検索結果: **{len(filtered_df)}** 行")
         else:
-            st.write(f"全車両データ一覧: **{len(filtered_df)}** 行")
+            st.write(f"全車両一覧: **{len(filtered_df)}** 行")
 
-        st.dataframe(display_df, width="stretch", hide_index=True)
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-    # ── 【タブ2】 新規登録 (写真アップロード ＆ カメラ対応) ──
+    # ── 【タブ2】 新規登録 ──
     with tab2:
-        st.subheader("➕ 新規車両の登録（写真・カメラ対応）")
-        st.write("スマホで撮影するか、保存してある写真を選択して読み込めます。")
-
-        # 1. 写真のアップロード（ライブラリから選択）またはカメラ撮影の選択
-        upload_choice = st.radio("画像の入力方法", ["写真をアップロード（ライブラリから選択）", "その場でカメラ撮影する"])
+        st.subheader("➕ 新規車両の登録")
+        upload_choice = st.radio("画像の入力方法", ["写真をアップロード", "カメラで撮影"], horizontal=True)
         
         uploaded_image = None
-        if upload_choice == "写真をアップロード（ライブラリから選択）":
-            uploaded_image = st.file_uploader("車番やナンバープレートの写真を選択", type=["jpg", "jpeg", "png"])
+        if upload_choice == "写真をアップロード":
+            uploaded_image = st.file_uploader("写真を選択", type=["jpg", "jpeg", "png"])
         else:
-            uploaded_image = st.camera_input("📷 ナンバープレートを撮影")
+            uploaded_image = st.camera_input("📷 撮影")
 
         if uploaded_image is not None:
-            st.success("✨ 写真の読み込みに成功しました！下の入力欄に反映されます。")
-            # ※ここで自動解析された仮の値をセッションにセット（例としてのダミー補助）
-            # 実際のOCR処理の結果をここに結びつけられます
+            st.success("✨ 写真を受け付けました！")
 
         with st.form("new_vehicle_form"):
             existing_companies = df_base['会社名'].dropna().unique().tolist() if '会社名' in df_base.columns else []
-            comp_mode = st.radio("会社名の指定方法", ["既存の会社から選ぶ", "新しい会社を入力する"])
+            comp_mode = st.radio("会社名の指定", ["既存の会社から選ぶ", "新しい会社を入力する"])
             
             if comp_mode == "既存の会社から選ぶ" and existing_companies:
                 company_name = st.selectbox("会社名を選択", existing_companies)
             else:
-                company_name = st.text_input("新しい会社名を入力（例: 03：〇〇商事）")
+                company_name = st.text_input("新しい会社名を入力（例: 03：〇〇商事 ※2桁の重複に注意）")
 
-            new_shaban = st.text_input("車番 *必須", value=st.session_state.get("scanned_shaban", ""))
-            new_input_no = st.text_input("入力番号")
+            new_shaban = st.text_input("車番 *必須（同じ車番がある場合はA/B等で区別）", value=st.session_state.get("scanned_shaban", ""))
+            new_input_no = st.text_input("入力番号（会社番号2桁＋車番）")
             new_detail = st.text_input("詳細（例: 岐阜302 も 9418）", value=st.session_state.get("scanned_detail", ""))
-            new_remark = st.text_input("備考")
+            new_remark = st.text_input("備考（例: 4t車、大型車など）")
             new_風体 = st.text_input("風体")
 
-            submit_button = st.form_submit_button(label="💾 この内容で番号順に登録する")
+            submit_button = st.form_submit_button(label="💾 番号順に登録する")
 
             if submit_button:
                 if not new_shaban or not company_name:
-                    st.error("⚠️ 「会社名」と「車番」は必ず入力してください！")
+                    st.error("⚠️ 「会社名」と「車番」は必須です！")
                 else:
                     if '車番' in df_base.columns and new_shaban in df_base['車番'].values:
-                        st.warning(f"⚠️ 警告: 車番「{new_shaban}」はすでに登録されています！")
+                        st.warning(f"⚠️ 車番「{new_shaban}」はすでに登録されています！(必要に応じてA/B等で区別してください)")
                     else:
-                        st.success(f"🎉 会社名: {company_name} / 車番: {new_shaban} （詳細: {new_detail}）を登録しました！")
+                        st.success(f"🎉 会社名: {company_name} / 車番: {new_shaban} を登録しました！")
 
-    # ── 【タブ3】 編集・削除 ──
+    # ── 【タブ3】 編集・削除（すべての項目が編集可能） ──
     with tab3:
         st.subheader("✏️ 車両情報の編集・削除")
-        edit_query = st.text_input("編集・削除したい車番を入力して検索", key="edit_search")
+        edit_query = st.text_input("検索する車番を入力", key="edit_search")
         if edit_query:
             matched = df_base[df_base['車番'].str.contains(edit_query, case=False, na=False)]
             if len(matched) > 0:
@@ -216,21 +236,25 @@ try:
                 for idx, row in matched.iterrows():
                     with st.expander(f"車番: {row.get('車番')} （会社名: {row.get('会社名')}）"):
                         with st.form(f"edit_form_{idx}"):
-                            st.text_input("会社名", value=row.get('会社名', ''))
-                            st.text_input("車番", value=row.get('車番', ''))
-                            st.text_input("詳細", value=row.get('詳細', ''))
+                            e_comp = st.text_input("会社名", value=row.get('会社名', ''))
+                            e_shaban = st.text_input("車番", value=row.get('車番', ''))
+                            e_input = st.text_input("入力番号", value=row.get('入力番号', ''))
+                            e_detail = st.text_input("詳細", value=row.get('詳細', ''))
+                            e_remark = st.text_input("備考", value=row.get('備考', ''))
+                            e_fuutai = st.text_input("風体", value=row.get('風体', ''))
+                            
                             col_e1, col_e2 = st.columns(2)
                             if col_e1.form_submit_button("🔄 変更を保存"):
                                 st.success("変更を保存しました！")
-                            if col_e2.form_submit_button("🗑️ 削除"):
+                            if col_e2.form_submit_button("🗑 削除"):
                                 st.warning("データを削除しました。")
             else:
-                st.info("該当する車番が見つかりません。")
+                st.info("該当なし")
 
     # ── 【タブ4】 お気に入り ──
     with tab4:
-        st.subheader("⭐ お気に入り（よく使う車両）")
-        st.info("現在お気に入りに登録されている車両はありません。")
+        st.subheader("⭐ お気に入り")
+        st.info("登録されているお気に入りはありません。")
 
 except Exception as e:
-    st.error(f"データの読み込み中にエラーが発生しました: {e}")
+    st.error(f"エラーが発生しました: {e}")

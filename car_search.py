@@ -4,6 +4,7 @@ import openpyxl
 import re
 import os
 from datetime import datetime
+from PIL import Image
 
 # ページの設定
 st.set_page_config(
@@ -124,7 +125,6 @@ def load_data():
             continue 
         
         if current_comp and len(row_vals) > 0:
-            # 元の行データをパディング
             padded = list(row.values)
             new_row = [current_comp] + padded
             processed_rows.append(new_row)
@@ -159,12 +159,11 @@ def load_data():
             
     return df_display
 
-# Excelファイルへ実際に新しい会社＆車両を追記・保存する関数
+# Excelファイルへ実際に新しい会社＆車両を保存する関数
 def save_new_vehicle_to_excel(company_str, shaban, input_no, detail, remark, fuutai):
     wb = openpyxl.load_workbook(FILE_PATH)
     ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
 
-    # 既存の行を全走査して会社が存在するか探す
     comp_row_idx = None
     last_row = ws.max_row
     
@@ -177,7 +176,6 @@ def save_new_vehicle_to_excel(company_str, shaban, input_no, detail, remark, fuu
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if comp_row_idx is not None:
-        # 会社がすでにある場合：その会社のブロックの末尾を探して行を挿入
         insert_target = comp_row_idx + 1
         while insert_target <= ws.max_row:
             cell_v = str(ws.cell(row=insert_target, column=1).value or "").strip()
@@ -186,7 +184,7 @@ def save_new_vehicle_to_excel(company_str, shaban, input_no, detail, remark, fuu
             insert_target += 1
         
         ws.insert_rows(insert_target)
-        ws.cell(row=insert_target, column=1, value="") # 会社名セルは空
+        ws.cell(row=insert_target, column=1, value="")
         ws.cell(row=insert_target, column=2, value=str(shaban))
         ws.cell(row=insert_target, column=3, value=str(input_no))
         ws.cell(row=insert_target, column=4, value=str(detail))
@@ -195,7 +193,6 @@ def save_new_vehicle_to_excel(company_str, shaban, input_no, detail, remark, fuu
         ws.cell(row=insert_target, column=7, value=str(fuutai))
         ws.cell(row=insert_target, column=8, value=now_str)
     else:
-        # 新しい会社の場合：末尾に会社ヘッダー行＋車両行を追加
         r1 = ws.max_row + 1
         ws.cell(row=r1, column=1, value=str(company_str))
         
@@ -210,7 +207,7 @@ def save_new_vehicle_to_excel(company_str, shaban, input_no, detail, remark, fuu
         ws.cell(row=r2, column=8, value=now_str)
 
     wb.save(FILE_PATH)
-    load_data.clear() # キャッシュをクリアして即座に画面更新
+    load_data.clear()
 
 try:
     df_base = load_data()
@@ -224,6 +221,8 @@ try:
         if st.button("🏠 ホーム", use_container_width=True):
             st.session_state.search_box_main = ""
             st.session_state.active_card_key = None
+            st.session_state.scanned_shaban = ""
+            st.session_state.scanned_detail = ""
             st.rerun()
 
     tab1, tab2, tab3, tab4 = st.tabs(["🔍 検索", "➕ 新規登録", "✏️ 編集", "⭐ お気に入り"])
@@ -330,10 +329,11 @@ try:
                 """
                 st.markdown(card_html, unsafe_allow_html=True)
 
-    # ── 【タブ2】 新規登録（Excel保存連動！） ──
+    # ── 【タブ2】 新規登録（カメラ・写真スキャン＋カード入力） ──
     with tab2:
         st.subheader("➕ 新規車両の登録")
         
+        # 1. 会社番号と名前の決定
         existing_companies = df_base['会社名'].dropna().unique().tolist() if '会社名' in df_base.columns else []
         used_numbers = set()
         for c in existing_companies:
@@ -367,7 +367,7 @@ try:
 
             if new_comp_code:
                 if not new_comp_code.isdigit() or len(new_comp_code) != 2:
-                    st.warning("⚠️️ 会社番号は半角数字2桁（00〜99）で入力してください。")
+                    st.warning("⚠️ 会社番号は半角数字2桁（00〜99）で入力してください。")
                 elif int(new_comp_code) in used_numbers:
                     st.error(f"⚠️ 番号「{new_comp_code}」は既に使われています！別の空き番号を指定してください。")
                 else:
@@ -377,6 +377,39 @@ try:
                 selected_target_comp = f"{new_comp_code}：{new_comp_raw_name.strip()}"
                 comp_2digit_prefix = new_comp_code
 
+        # 2. 写真撮影・アップロードによる自動読み取り枠
+        st.write("---")
+        with st.expander("📷 カメラ撮影 / 画像アップロードで自動入力する", expanded=False):
+            upload_choice = st.radio("入力方法", ["カメラで撮影", "写真をアップロード"], horizontal=True)
+            uploaded_image = None
+            if upload_choice == "カメラで撮影":
+                uploaded_image = st.camera_input("📷 シャッターを押して撮影")
+            else:
+                uploaded_image = st.file_uploader("📁 写真ファイルを選択", type=["jpg", "jpeg", "png"])
+
+            if uploaded_image is not None:
+                st.image(uploaded_image, caption="取り込んだ画像", width=250)
+                if st.button("✨ 画像から車番・ナンバーを読み取る", use_container_width=True):
+                    # OCRライブラリ有無に応じた安全な抽出（pytesseract対応）
+                    extracted_text = ""
+                    try:
+                        import pytesseract
+                        img = Image.open(uploaded_image)
+                        extracted_text = pytesseract.image_to_string(img, lang="jpn+eng")
+                    except Exception:
+                        pass
+                    
+                    # ナンバープレートや4桁数字の抽出ロジック
+                    nums = re.findall(r'\b\d{1,4}\b', extracted_text)
+                    if nums:
+                        st.session_state.scanned_shaban = nums[-1]
+                        st.session_state.scanned_detail = extracted_text.strip().replace("\n", " ")
+                        st.success(f"🔍 読み取り成功！ 車番「{st.session_state.scanned_shaban}」を下に入力しました。")
+                    else:
+                        st.info("💡 画像を受け付けました。下のカードで必要項目を確認・入力してください。")
+                    st.rerun()
+
+        # 3. 会社決定後の新規車両カード入力
         if selected_target_comp:
             st.markdown(f"""
             <div class="vehicle-detail-card">
@@ -385,11 +418,19 @@ try:
             """, unsafe_allow_html=True)
 
             with st.form("new_vehicle_form_card"):
-                new_shaban = st.text_input("車番 *必須（重複時はA/B等）", value=st.session_state.get("scanned_shaban", ""))
+                new_shaban = st.text_input(
+                    "車番 *必須（重複時はA/B等）", 
+                    value=st.session_state.get("scanned_shaban", "")
+                )
                 
-                default_input_no = f"{comp_2digit_prefix}{new_shaban}" if comp_2digit_prefix and new_shaban else ""
-                new_input_no = st.text_input("入力番号（会社2桁＋車番）", value=default_input_no)
-                new_detail = st.text_input("詳細（例: 岐阜302 も 9418）", value=st.session_state.get("scanned_detail", ""))
+                # 自動入力番号の計算
+                calc_input_no = f"{comp_2digit_prefix}{new_shaban}" if comp_2digit_prefix and new_shaban else ""
+                new_input_no = st.text_input("入力番号（会社2桁＋車番）", value=calc_input_no)
+                
+                new_detail = st.text_input(
+                    "詳細（例: 岐阜302 も 9418）", 
+                    value=st.session_state.get("scanned_detail", "")
+                )
                 new_remark = st.text_input("備考（例: 4t車、大型など）")
                 new_fuutai = st.text_input("風体")
 
@@ -398,7 +439,6 @@ try:
                         st.error("⚠️ 車番を入力してください！")
                     else:
                         try:
-                            # 実際にExcelファイルに保存！
                             save_new_vehicle_to_excel(
                                 selected_target_comp,
                                 new_shaban,
@@ -407,6 +447,9 @@ try:
                                 new_remark,
                                 new_fuutai
                             )
+                            # 登録後はスキャン状態をクリア
+                            st.session_state.scanned_shaban = ""
+                            st.session_state.scanned_detail = ""
                             st.success(f"🎉 Excelに書き込み完了！ 会社「{selected_target_comp}」に 車番「{new_shaban}」を追加しました！")
                             st.rerun()
                         except Exception as ex:

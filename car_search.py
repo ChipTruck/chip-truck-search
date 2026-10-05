@@ -38,9 +38,8 @@ try:
     with col_title:
         st.title("🚗 登録車両 検索アプリ")
     with col_home:
-        st.write("") # 位置調整
+        st.write("") 
         if st.button("🏠 ホーム", use_container_width=True):
-            # ページをリセットするためにクエリなどをクリアして再読み込み
             st.rerun()
 
     st.write("車両番号（ナンバープレートの数字）で素早く検索できます。")
@@ -48,29 +47,36 @@ try:
     # 検索ボックス
     search_query = st.text_input("🔍 ナンバープレートの数字を入力（例: 1, 1351 など）", "")
 
-    # フィルタリング処理（ナンバープレート・車両番号が入っている主要な列だけで検索）
+    # フィルタリング処理
     filtered_df = df_display.copy()
+    is_searched = False  # 検索されたかどうかを判定するフラグ
+
     if search_query:
+        is_searched = True
         if len(filtered_df.columns) > 3:
-            # 会社名（0番目）やラベルを除外し、車両番号・ナンバーの主要な数字列（2番目、3番目付近）を対象にする
-            target_cols = [filtered_df.columns[1], filtered_df.columns[2], filtered_df.columns[3]]
+            target_cols = [filtered_df.columns[2], filtered_df.columns[3]] if len(filtered_df.columns) > 3 else [filtered_df.columns[1]]
             mask = filtered_df[target_cols].apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
             filtered_df = filtered_df[mask]
         else:
             mask = filtered_df.apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
             filtered_df = filtered_df[mask]
 
-    # 検索結果を数字の小さい順に自動で並び替える（ソート）
-    try:
-        if len(filtered_df.columns) > 2:
-            sort_target_col = filtered_df.columns[2]
-            filtered_df['_sort_val'] = pd.to_numeric(filtered_df[sort_target_col], errors='coerce')
-            filtered_df = filtered_df.sort_values(by='_sort_val', ascending=True, na_position='last')
-            filtered_df = filtered_df.drop(columns=['_sort_val'])
-    except Exception:
-        pass
+    # ── 検索されたときだけ、数字の小さい順に正確に並び替える ──
+    if is_searched:
+        try:
+            if len(filtered_df.columns) > 2:
+                sort_col = filtered_df.columns[2]
+                filtered_df = filtered_df.copy()
+                filtered_df['_sort_num'] = pd.to_numeric(filtered_df[sort_col].str.extract(r'(\d+)', expand=False), errors='coerce')
+                filtered_df = filtered_df.sort_values(by='_sort_num', ascending=True, na_position='last')
+                filtered_df = filtered_df.drop(columns=['_sort_num'])
+        except Exception:
+            pass
 
-    st.write(f"検索結果: **{len(filtered_df)}** 行（数字の小さい順に表示中）")
+    if is_searched:
+        st.write(f"検索結果: **{len(filtered_df)}** 行（数字の小さい順に表示中）")
+    else:
+        st.write(f"全車両データ一覧: **{len(filtered_df)}** 行")
 
     # 表として表示
     st.dataframe(filtered_df, width="stretch", hide_index=True)

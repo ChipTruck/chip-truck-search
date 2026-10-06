@@ -13,12 +13,12 @@ st.set_page_config(
     layout="wide"
 )
 
-# ── スマホでも綺麗に収まるレイアウト＆強制3列CSS ──
+# ── スマホでも崩れない＆高さピッタリ配置CSS ──
 st.markdown("""
     <style>
-    /* タイトルが変に改行されず1行で綺麗に収まるスタイル */
+    /* タイトル */
     .app-main-title {
-        font-size: 1.6rem !important;
+        font-size: 1.55rem !important;
         font-weight: bold !important;
         color: #1e88e5;
         margin-top: -10px;
@@ -30,20 +30,21 @@ st.markdown("""
         width: 100% !important;
     }
     
-    /* 検索ボックスを大きくして押しやすくする */
+    /* 入力ボックスとボタンの高さを完全に揃える（48px統一） */
     div[data-testid="stTextInput"] input {
-        font-size: 1.35rem !important;
-        height: 50px !important;
+        font-size: 1.4rem !important;
+        height: 48px !important;
         font-weight: bold !important;
         border: 2px solid #1e88e5 !important;
         border-radius: 8px !important;
+        padding: 0 12px !important;
     }
     
-    /* 横並びカラムのスマホ崩れ防止 */
     div[data-testid="stHorizontalBlock"] {
         display: flex !important;
         flex-direction: row !important;
         flex-wrap: nowrap !important;
+        align-items: center !important;
         gap: 6px !important;
     }
     div[data-testid="stHorizontalBlock"] > div {
@@ -52,7 +53,7 @@ st.markdown("""
     }
     div[data-testid="stHorizontalBlock"] button, div[data-testid="stHorizontalBlock"] a {
         width: 100% !important;
-        height: 46px !important;
+        height: 48px !important;
         font-size: 1.05rem !important;
         font-weight: bold !important;
         border-radius: 8px !important;
@@ -93,18 +94,22 @@ st.markdown("""
     }
     </style>
 
-    <!-- スマホでタップした瞬間に数字キーボードを立ち上げるスクリプト -->
+    <!-- iPhone/Androidでタップ時に数字キーボード（電話テンキー）を一発で開く強力スクリプト -->
     <script>
-    const setNumericMode = () => {
-        const inputs = window.parent.document.querySelectorAll('input[type="text"]');
+    function forceNumericKeypad() {
+        const doc = window.parent ? window.parent.document : document;
+        const inputs = doc.querySelectorAll('input[type="text"]');
         inputs.forEach(inp => {
-            if (inp.getAttribute('aria-label') && inp.getAttribute('aria-label').includes('車番')) {
+            const label = inp.getAttribute('aria-label') || '';
+            if (label.includes('車番') || label.includes('search') || inp.id.includes('search')) {
+                inp.setAttribute('type', 'tel');
                 inp.setAttribute('inputmode', 'numeric');
                 inp.setAttribute('pattern', '[0-9]*');
+                inp.setAttribute('autocomplete', 'off');
             }
         });
-    };
-    setInterval(setNumericMode, 800);
+    }
+    setInterval(forceNumericKeypad, 400);
     </script>
 """, unsafe_allow_html=True)
 
@@ -367,7 +372,7 @@ def generate_upload_csv(df_source):
 
 df_base = st.session_state.app_df
 
-# ── 【ヘッダー改善】タイトルを1行で大きく、ボタンはその下に2列並び ──
+# ── ヘッダー ──
 st.markdown('<div class="app-main-title">🚗 車両管理＆検索</div>', unsafe_allow_html=True)
 
 col_home, col_dl = st.columns(2)
@@ -393,20 +398,24 @@ tab1, tab2, tab3 = st.tabs(["🔍 検索", "➕ 新規登録", "✏️ 編集・
 
 # ── 【タブ1】 検索・閲覧 ──
 with tab1:
-    st.write("枠をタップすると**スマホの数字キーボード**が立ち上がります。")
+    # 案内ラベルを上段に独立配置
+    st.markdown("##### 🔍 車番を入力（例: 8, 14, 1234 など）")
 
-    col_inp, col_clr = st.columns([3, 1])
+    # 入力枠とクリアボタンを高さピッタリで横並び
+    col_inp, col_clr = st.columns([3.2, 1.2])
     with col_inp:
         search_val = st.text_input(
-            "🔍 車番を入力（例: 8, 14, 1234 など）", 
+            "車番検索入力", 
             value=st.session_state.search_box_main,
-            key="search_input_widget"
+            key="search_input_widget",
+            placeholder="タップして数字入力",
+            label_visibility="collapsed"
         )
         if search_val != st.session_state.search_box_main:
             st.session_state.search_box_main = search_val
             st.session_state.active_card_key = None
+            
     with col_clr:
-        st.write("")
         if st.button("クリア", use_container_width=True):
             st.session_state.search_box_main = ""
             st.session_state.active_card_key = None

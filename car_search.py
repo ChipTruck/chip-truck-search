@@ -195,11 +195,11 @@ def load_raw_data():
         
     return df
 
-# セッション状態
+# セッション状態の初期化
 if "app_df" not in st.session_state:
     st.session_state.app_df = load_raw_data()
-if "search_box_main" not in st.session_state:
-    st.session_state.search_box_main = ""
+if "search_input_widget" not in st.session_state:
+    st.session_state.search_input_widget = ""
 if "active_card_key" not in st.session_state:
     st.session_state.active_card_key = None
 if "scanned_shaban" not in st.session_state:
@@ -210,6 +210,12 @@ if "action_notice" not in st.session_state:
     st.session_state.action_notice = ""
 if "edit_search_keyword" not in st.session_state:
     st.session_state.edit_search_keyword = ""
+
+# 検索欄と表示状態を完全にリセットする関数
+def reset_to_home():
+    st.session_state["search_input_widget"] = ""
+    st.session_state["active_card_key"] = None
+    st.session_state["action_notice"] = ""
 
 def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai):
     df = st.session_state.app_df.copy()
@@ -377,13 +383,8 @@ st.markdown('<div class="app-main-title">🚗 車両管理＆検索</div>', unsa
 
 col_home, col_dl = st.columns(2)
 with col_home:
-    if st.button("🏠 ホーム", use_container_width=True):
-        st.session_state.search_box_main = ""
-        st.session_state.active_card_key = None
-        st.session_state.scanned_shaban = ""
-        st.session_state.scanned_detail = ""
-        st.session_state.action_notice = ""
-        st.rerun()
+    # ホームボタンを押したら強制初期化
+    st.button("🏠 ホーム", on_click=reset_to_home, use_container_width=True)
 with col_dl:
     csv_data = generate_upload_csv(df_base)
     st.download_button(
@@ -398,30 +399,23 @@ tab1, tab2, tab3 = st.tabs(["🔍 検索", "➕ 新規登録", "✏️ 編集・
 
 # ── 【タブ1】 検索・閲覧 ──
 with tab1:
-    # 案内ラベルを上段に独立配置
     st.markdown("##### 🔍 車番を入力（例: 8, 14, 1234 など）")
 
-    # 入力枠とクリアボタンを高さピッタリで横並び
+    # 入力枠とクリアボタンを高さピッタリ一直線に配置
     col_inp, col_clr = st.columns([3.2, 1.2])
     with col_inp:
         search_val = st.text_input(
             "車番検索入力", 
-            value=st.session_state.search_box_main,
             key="search_input_widget",
             placeholder="タップして数字入力",
             label_visibility="collapsed"
         )
-        if search_val != st.session_state.search_box_main:
-            st.session_state.search_box_main = search_val
-            st.session_state.active_card_key = None
             
     with col_clr:
-        if st.button("クリア", use_container_width=True):
-            st.session_state.search_box_main = ""
-            st.session_state.active_card_key = None
-            st.rerun()
+        # クリアボタンを押したら即座に入力を消去
+        st.button("クリア", on_click=reset_to_home, use_container_width=True)
 
-    current_search = st.session_state.search_box_main.strip()
+    current_search = search_val.strip()
     filtered_df = df_base.copy()
     is_searched = bool(current_search)
 

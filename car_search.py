@@ -80,7 +80,7 @@ SHEET_NAME = "新_登録車両資料"
 
 # 文字列の表記ゆれ統一
 def normalize_text(text):
-    if not text:
+    if not text or str(text).lower() in ["none", "nan"]:
         return ""
     t = str(text).replace("：", ":").replace(" ", "").replace(" ", "")
     return t.strip()
@@ -145,6 +145,8 @@ def load_raw_data():
         if c not in df.columns:
             df[c] = ""
             
+    # "None" や "nan" を空白に置換
+    df = df.replace(["None", "nan", "<NA>"], "")
     return df
 
 # アプリ全体で共有するデータ
@@ -162,6 +164,8 @@ if "scanned_detail" not in st.session_state:
     st.session_state.scanned_detail = ""
 if "action_notice" not in st.session_state:
     st.session_state.action_notice = ""
+if "edit_search_keyword" not in st.session_state:
+    st.session_state.edit_search_keyword = ""
 
 # テンキー処理
 if st.session_state.pending_key is not None:
@@ -246,7 +250,7 @@ def delete_vehicle_record(company_str, old_shaban, old_input_no):
         r_c = normalize_text(r.get('会社名', ''))
         r_s = normalize_text(r.get('車番', ''))
         r_inp = normalize_text(r.get('入力番号', ''))
-        if (r_c == norm_c and r_s == norm_s) or (norm_inp and r_inp == norm_inp):
+        if (norm_inp and r_inp == norm_inp) or (r_c == norm_c and (r_s == norm_s or (not norm_s and not r_s))):
             drop_indices.append(idx)
 
     if drop_indices:
@@ -265,7 +269,7 @@ def delete_vehicle_record(company_str, old_shaban, old_input_no):
                 current_comp = c1
             c2 = normalize_text(ws.cell(row=r, column=2).value)
             c3 = normalize_text(ws.cell(row=r, column=3).value)
-            if (current_comp == norm_c and c2 == norm_s) or (norm_inp and c3 == norm_inp):
+            if (norm_inp and c3 == norm_inp) or (current_comp == norm_c and (c2 == norm_s or (not norm_s and not c2))):
                 rows_to_delete.append(r)
         
         for r in reversed(rows_to_delete):
@@ -275,7 +279,7 @@ def delete_vehicle_record(company_str, old_shaban, old_input_no):
     except Exception:
         pass
 
-# 車両情報の更新
+# 車両情報の更新（車番が空だった場合も確実に一致させる）
 def update_vehicle_record(old_company, old_shaban, old_input_no, new_comp, new_shaban, new_input_no, new_detail, new_remark, new_fuutai):
     df = st.session_state.app_df.copy()
     norm_c = normalize_text(old_company)
@@ -283,7 +287,12 @@ def update_vehicle_record(old_company, old_shaban, old_input_no, new_comp, new_s
     norm_inp = normalize_text(old_input_no)
 
     for idx, r in df.iterrows():
-        if (normalize_text(r.get('会社名', '')) == norm_c and normalize_text(r.get('車番', '')) == norm_s) or (norm_inp and normalize_text(r.get('入力番号', '')) == norm_inp):
+        r_c = normalize_text(r.get('会社名', ''))
+        r_s = normalize_text(r.get('車番', ''))
+        r_inp = normalize_text(r.get('入力番号', ''))
+        
+        # 入力番号が一致、または会社名＋車番が一致（旧車番が空の場合も含む）
+        if (norm_inp and r_inp == norm_inp) or (r_c == norm_c and (r_s == norm_s or (not norm_s and not r_s))):
             df.at[idx, '会社名'] = new_comp
             df.at[idx, '車番'] = new_shaban
             df.at[idx, '入力番号'] = new_input_no
@@ -306,7 +315,7 @@ def update_vehicle_record(old_company, old_shaban, old_input_no, new_comp, new_s
             c2 = normalize_text(ws.cell(row=r, column=2).value)
             c3 = normalize_text(ws.cell(row=r, column=3).value)
 
-            if (current_comp == norm_c and c2 == norm_s) or (norm_inp and c3 == norm_inp):
+            if (norm_inp and c3 == norm_inp) or (current_comp == norm_c and (c2 == norm_s or (not norm_s and not c2))):
                 ws.cell(row=r, column=2, value=str(new_shaban))
                 ws.cell(row=r, column=3, value=str(new_input_no))
                 ws.cell(row=r, column=4, value=str(new_detail))
@@ -317,17 +326,14 @@ def update_vehicle_record(old_company, old_shaban, old_input_no, new_comp, new_s
     except Exception:
         pass
 
-# ── Upload.csv 形式のCSVデータを生成する関数 ──
+# Upload.csv 生成関数
 def generate_upload_csv(df_source):
-    # A: Vehicle ID (入力番号) / B: Max weight (0固定) / C: Weight (風体)
     rows = []
     for _, r in df_source.iterrows():
         v_id = str(r.get('入力番号', '')).strip()
         fuutai_raw = str(r.get('風体', '')).strip()
         
-        # 入力番号がある車両のみ対象
-        if v_id and v_id not in ["nan", "None"]:
-            # 風体から数字だけを抽出（例: "15550 kg" -> "15550"）
+        if v_id and v_id not in ["nan", "None", ""]:
             m_fuutai = re.findall(r'\d+', fuutai_raw)
             fuutai_val = m_fuutai[0] if m_fuutai else "0"
             rows.append({
@@ -337,7 +343,6 @@ def generate_upload_csv(df_source):
             })
             
     csv_df = pd.DataFrame(rows, columns=['Vehicle ID', 'Max weight', 'Weight'])
-    # UTF-8 with BOM (Excelや計量ソフトで文字化けしない形式)
     return csv_df.to_csv(index=False, encoding='utf-8-sig')
 
 try:
@@ -358,7 +363,6 @@ try:
             st.rerun()
     with col_dl:
         st.write("")
-        # Upload.csv 形式で一括ダウンロード
         csv_data = generate_upload_csv(df_base)
         st.download_button(
             label="📥 Upload.csv",
@@ -580,7 +584,7 @@ try:
                 submitted = st.form_submit_button("💾 この内容で登録を保存", type="primary")
                 if submitted:
                     if not new_shaban:
-                        st.error("⚠️ 車番を入力してください！")
+                        st.error("⚠️️ 車番を入力してください！")
                     else:
                         try:
                             insert_vehicle_record(
@@ -599,7 +603,7 @@ try:
                         except Exception as ex:
                             st.error(f"⚠️ 保存中にエラーが発生しました: {ex}")
 
-    # ── 【タブ3】 編集・削除 ──
+    # ── 【タブ3】 編集・削除（会社名・入力番号・詳細でも検索可能！） ──
     with tab3:
         st.subheader("✏️ 車両情報の編集・削除")
 
@@ -607,14 +611,43 @@ try:
             st.success(st.session_state.action_notice)
             st.session_state.action_notice = ""
 
-        st.write("まず、編集・削除したい車両を検索して決定してください。")
-        
-        edit_search_val = st.text_input("編集・削除したい車番を検索", key="edit_search_input")
-        
+        st.write("車番、会社名、入力番号、詳細（ナンバー）のいずれかで検索できます。")
+
+        # 未入力・空欄レコードをワンタップで抽出する便利ボタン
+        empty_shaban_count = len(df_base[df_base['車番'].fillna('').astype(str).str.strip() == ''])
+        if empty_shaban_count > 0:
+            if st.button(f"⚠️ 車番が未入力の車両（{empty_shaban_count}台）を抽出する", use_container_width=True):
+                st.session_state.edit_search_keyword = "車番未設定"
+
+        edit_search_val = st.text_input(
+            "🔍 検索キーワード（例: 8、細川、058、吉田 など）", 
+            value=st.session_state.get("edit_search_keyword", ""),
+            key="edit_search_input_box"
+        )
+        st.session_state.edit_search_keyword = edit_search_val
+
         if edit_search_val:
-            matched = df_base[df_base['車番'].astype(str).str.contains(edit_search_val, case=False, na=False)]
+            s_term = edit_search_val.strip()
+            
+            if s_term == "車番未設定":
+                matched = df_base[df_base['車番'].fillna('').astype(str).str.strip() == '']
+            else:
+                # 会社名、車番、入力番号、詳細のいずれかにキーワードが含まれるか横断検索！
+                m1 = df_base['車番'].astype(str).str.contains(s_term, case=False, na=False)
+                m2 = df_base['会社名'].astype(str).str.contains(s_term, case=False, na=False)
+                m3 = df_base['入力番号'].astype(str).str.contains(s_term, case=False, na=False)
+                m4 = df_base['詳細'].astype(str).str.contains(s_term, case=False, na=False)
+                matched = df_base[m1 | m2 | m3 | m4]
+
             if len(matched) > 0:
-                car_choices = [f"{r.get('車番', '')} - {r.get('会社名', '')} (入力番号: {r.get('入力番号', '')})" for _, r in matched.iterrows()]
+                car_choices = []
+                for _, r in matched.iterrows():
+                    c_shaban = r.get('車番', '').strip() or '(車番未設定)'
+                    c_comp = r.get('会社名', '').strip()
+                    c_inp = r.get('入力番号', '').strip()
+                    c_detail = r.get('詳細', '').strip()
+                    car_choices.append(f"🚗 車番: {c_shaban} | {c_comp} (入力番号: {c_inp} / 詳細: {c_detail})")
+
                 selected_edit_car = st.selectbox("対象の車両を決定してください", car_choices)
                 
                 edit_idx = car_choices.index(selected_edit_car)
@@ -625,13 +658,13 @@ try:
 
                 st.markdown(f"""
                 <div class="vehicle-detail-card">
-                    <div class="card-title">✏️ 車両編集・削除カード: {target_old_shaban}</div>
+                    <div class="card-title">✏️ 車両編集・削除カード: {target_old_shaban or '（車番未設定）'}</div>
                 </div>
                 """, unsafe_allow_html=True)
 
                 with st.form("card_edit_form"):
                     e_comp = st.text_input("会社名", value=target_old_comp)
-                    e_shaban = st.text_input("車番", value=target_old_shaban)
+                    e_shaban = st.text_input("車番（ここに番号を入力）", value=target_old_shaban)
                     e_input = st.text_input("入力番号", value=target_old_input_no)
                     e_detail = st.text_input("詳細", value=target_edit_row.get('詳細', ''))
                     e_remark = st.text_input("備考", value=target_edit_row.get('備考', ''))
@@ -646,17 +679,17 @@ try:
                             target_old_comp, target_old_shaban, target_old_input_no,
                             e_comp, e_shaban, e_input, e_detail, e_remark, e_fuutai
                         )
-                        st.session_state.action_notice = f"✅ 車番「{e_shaban}」の内容を更新・保存しました！"
+                        st.session_state.action_notice = f"✅ 車両情報（車番「{e_shaban}」）の内容を更新・保存しました！"
                         st.toast("✅ 変更を保存しました！")
                         st.rerun()
 
                     if del_clicked:
                         delete_vehicle_record(target_old_comp, target_old_shaban, target_old_input_no)
-                        st.session_state.action_notice = f"🗑 会社「{target_old_comp}」の 車番「{target_old_shaban}」を完全に消去しました！"
+                        st.session_state.action_notice = f"🗑 会社「{target_old_comp}」の車両を完全に消去しました！"
                         st.toast("🗑 データを消去しました！")
                         st.rerun()
             else:
-                st.info("該当する車両が見つかりませんでした。")
+                st.info("該当する車両が見つかりませんでした。別のキーワード（会社名や詳細など）をお試しください。")
 
 except Exception as e:
     st.error(f"エラーが発生しました: {e}")

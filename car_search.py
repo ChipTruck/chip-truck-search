@@ -13,7 +13,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# ── スマホ向けスタイル（見やすさ＆押しやすさ重視） ──
+# ── 見た目の調整＆鎖マーク完全消去CSS ──
 st.markdown("""
     <style>
     .app-main-title {
@@ -29,7 +29,12 @@ st.markdown("""
         width: 100% !important;
     }
     
-    /* 検索ボックスの文字を大きく */
+    /* 鎖マーク（アンカーリンク）を完全に非表示 */
+    a.anchor-link, [data-testid="stHeaderActionElements"] {
+        display: none !important;
+    }
+    
+    /* 検索ボックスの文字サイズと高さ */
     div[data-testid="stTextInput"] input {
         font-size: 1.4rem !important;
         height: 50px !important;
@@ -39,7 +44,6 @@ st.markdown("""
         padding: 0 12px !important;
     }
     
-    /* 検索フォーム内のボタン配置 */
     div[data-testid="stForm"] {
         border: none !important;
         padding: 0 !important;
@@ -68,7 +72,6 @@ st.markdown("""
         justify-content: center !important;
     }
     
-    /* カードスタイル */
     .vehicle-detail-card {
         background-color: #f8f9fa;
         border: 2px solid #1e88e5;
@@ -99,18 +102,20 @@ st.markdown("""
     }
     </style>
 
-    <script>
-    function applyNumericInput() {
-        const inputs = window.parent.document.querySelectorAll('input[type="text"]');
-        inputs.forEach(inp => {
-            if (inp.placeholder && inp.placeholder.includes('車番')) {
-                inp.setAttribute('inputmode', 'numeric');
-                inp.setAttribute('pattern', '[0-9]*');
+    <!-- iPhoneに本物の数字テンキーを強制表示させる特殊インジェクション -->
+    <img src="x" onerror="
+        function enforceTel(){
+            var inputs = document.querySelectorAll('input[type=text]');
+            for(var i=0; i<inputs.length; i++){
+                inputs[i].type = 'tel';
+                inputs[i].setAttribute('inputmode', 'numeric');
+                inputs[i].setAttribute('pattern', '[0-9]*');
+                inputs[i].setAttribute('autocomplete', 'off');
             }
-        });
-    }
-    setInterval(applyNumericInput, 500);
-    </script>
+        }
+        enforceTel();
+        setInterval(enforceTel, 400);
+    " style="display:none;"/>
 """, unsafe_allow_html=True)
 
 FILE_PATH = "新_登録車両資料_連動版.xlsx"
@@ -529,7 +534,7 @@ with tab2:
                 nums = re.findall(r'\b\d{1,4}\b', extracted_text)
                 if nums:
                     st.session_state.scanned_shaban = nums[-1]
-                    st.session_state.scanned_detail = extracted_text.strip().replace(chr(10), " ")
+                    st.session_state.scanned_detail = extracted_text.strip().replace("\n", " ")
                     st.success(f"🔍 読み取り成功！ 車番「{st.session_state.scanned_shaban}」を下に入力しました。")
                 else:
                     st.info("💡 画像を受け付けました。下のカードで必要項目を確認・入力してください。")
@@ -648,7 +653,7 @@ with tab3:
 
             st.markdown(f"""
             <div class="vehicle-detail-card">
-                <div class="card-title">✏️ 車両編集・削除カード: {target_old_shaban or '（車番未設定）'}</div>
+                <div class="card-title">✏️️ 車両編集・削除カード: {target_old_shaban or '（車番未設定）'}</div>
             </div>
             """, unsafe_allow_html=True)
 

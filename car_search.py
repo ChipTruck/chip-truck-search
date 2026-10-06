@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import openpyxl
 import re
@@ -137,7 +138,7 @@ def normalize_text(text):
     s = safe_str(text)
     if not s:
         return ""
-    t = s.replace("：", ":").replace(" ", "").replace(" ", "")
+    t = s.replace("：", ":").replace(" ", "").replace("　", "")
     return t.strip()
 
 @st.cache_data(ttl=5)
@@ -401,6 +402,24 @@ with tab1:
         if submit_clear:
             reset_to_home()
             st.rerun()
+
+    # 検索欄をタップしたらテンキーが出るようにする
+    components.html("""
+    <script>
+    const doc = window.parent.document;
+    function setNumericKeyboard() {
+        doc.querySelectorAll('input[placeholder="タップして車番を入力"]').forEach(el => {
+            if (el.getAttribute('inputmode') !== 'numeric') {
+                el.setAttribute('inputmode', 'numeric');
+                el.setAttribute('pattern', '[0-9]*');
+                el.setAttribute('autocomplete', 'off');
+            }
+        });
+    }
+    setNumericKeyboard();
+    new MutationObserver(setNumericKeyboard).observe(doc.body, {childList: true, subtree: true});
+    </script>
+    """, height=0)
 
     current_search = st.session_state.search_query.strip()
     filtered_df = df_base.copy()

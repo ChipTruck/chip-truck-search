@@ -234,3 +234,162 @@ def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai)
             ws.cell(row=r2, column=2, value=str(shaban))
             ws.cell(row=r2, column=3, value=str(input_no))
             ws.cell(row=r2, column=4, value=str(detail))
+            ws.cell(row=r2, column=5, value=str(remark))
+            ws.cell(row=r2, column=7, value=str(fuutai))
+        else:
+            r = ws.max_row + 1
+            ws.cell(row=r, column=1, value="")
+            ws.cell(row=r, column=2, value=str(shaban))
+            ws.cell(row=r, column=3, value=str(input_no))
+            ws.cell(row=r, column=4, value=str(detail))
+            ws.cell(row=r, column=5, value=str(remark))
+            ws.cell(row=r, column=7, value=str(fuutai))
+            
+        wb.save(FILE_PATH)
+    except Exception:
+        pass
+
+# 車両の完全削除
+def delete_vehicle_record(company_str, old_shaban, old_input_no):
+    df = st.session_state.app_df.copy()
+    norm_c = normalize_text(company_str)
+    norm_s = normalize_text(old_shaban)
+    norm_inp = normalize_text(old_input_no)
+
+    drop_indices = []
+    for idx, r in df.iterrows():
+        r_c = normalize_text(r.get('会社名', ''))
+        r_s = normalize_text(r.get('車番', ''))
+        r_inp = normalize_text(r.get('入力番号', ''))
+        if (norm_inp and r_inp == norm_inp) or (r_c == norm_c and (r_s == norm_s or (not norm_s and not r_s))):
+            drop_indices.append(idx)
+
+    if drop_indices:
+        df = df.drop(index=drop_indices).reset_index(drop=True)
+        st.session_state.app_df = df
+
+    try:
+        wb = openpyxl.load_workbook(FILE_PATH)
+        ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
+        
+        current_comp = ""
+        rows_to_delete = []
+        for r in range(1, ws.max_row + 1):
+            c1 = normalize_text(ws.cell(row=r, column=1).value)
+            if ":" in c1:
+                current_comp = c1
+            c2 = normalize_text(ws.cell(row=r, column=2).value)
+            c3 = normalize_text(ws.cell(row=r, column=3).value)
+            if (norm_inp and c3 == norm_inp) or (current_comp == norm_c and (c2 == norm_s or (not norm_s and not c2))):
+                rows_to_delete.append(r)
+        
+        for r in reversed(rows_to_delete):
+            ws.delete_rows(r)
+            
+        wb.save(FILE_PATH)
+    except Exception:
+        pass
+
+# 車両情報の更新
+def update_vehicle_record(old_company, old_shaban, old_input_no, new_comp, new_shaban, new_input_no, new_detail, new_remark, new_fuutai):
+    df = st.session_state.app_df.copy()
+    norm_c = normalize_text(old_company)
+    norm_s = normalize_text(old_shaban)
+    norm_inp = normalize_text(old_input_no)
+
+    for idx, r in df.iterrows():
+        r_c = normalize_text(r.get('会社名', ''))
+        r_s = normalize_text(r.get('車番', ''))
+        r_inp = normalize_text(r.get('入力番号', ''))
+        
+        if (norm_inp and r_inp == norm_inp) or (r_c == norm_c and (r_s == norm_s or (not norm_s and not r_s))):
+            df.at[idx, '会社名'] = safe_str(new_comp)
+            df.at[idx, '車番'] = safe_str(new_shaban)
+            df.at[idx, '入力番号'] = safe_str(new_input_no)
+            df.at[idx, '詳細'] = safe_str(new_detail)
+            df.at[idx, '備考'] = safe_str(new_remark)
+            df.at[idx, '風体'] = safe_str(new_fuutai)
+            break
+            
+    st.session_state.app_df = df
+
+    try:
+        wb = openpyxl.load_workbook(FILE_PATH)
+        ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
+        
+        current_comp = ""
+        for r in range(1, ws.max_row + 1):
+            c1 = normalize_text(ws.cell(row=r, column=1).value)
+            if ":" in c1:
+                current_comp = c1
+            c2 = normalize_text(ws.cell(row=r, column=2).value)
+            c3 = normalize_text(ws.cell(row=r, column=3).value)
+
+            if (norm_inp and c3 == norm_inp) or (current_comp == norm_c and (c2 == norm_s or (not norm_s and not c2))):
+                ws.cell(row=r, column=2, value=str(new_shaban))
+                ws.cell(row=r, column=3, value=str(new_input_no))
+                ws.cell(row=r, column=4, value=str(new_detail))
+                ws.cell(row=r, column=5, value=str(new_remark))
+                ws.cell(row=r, column=7, value=str(new_fuutai))
+                break
+        wb.save(FILE_PATH)
+    except Exception:
+        pass
+
+# Upload.csv 生成関数
+def generate_upload_csv(df_source):
+    rows = []
+    for _, r in df_source.iterrows():
+        v_id = safe_str(r.get('入力番号', ''))
+        fuutai_raw = safe_str(r.get('風体', ''))
+        
+        if v_id:
+            m_fuutai = re.findall(r'\d+', fuutai_raw)
+            fuutai_val = m_fuutai[0] if m_fuutai else "0"
+            rows.append({
+                'Vehicle ID': v_id,
+                'Max weight': 0,
+                'Weight': fuutai_val
+            })
+            
+    csv_df = pd.DataFrame(rows, columns=['Vehicle ID', 'Max weight', 'Weight'])
+    return csv_df.to_csv(index=False, encoding='utf-8-sig')
+
+df_base = st.session_state.app_df
+
+# ── ヘッダー：タイトル ＆ ホーム ＆ Upload.csvダウンロードボタン ──
+col_title, col_home, col_dl = st.columns([2.0, 0.9, 1.1])
+with col_title:
+    st.title("🚗 車両管理＆検索")
+with col_home:
+    st.write("")
+    if st.button("🏠 ホーム", use_container_width=True):
+        st.session_state.search_box_main = ""
+        st.session_state.active_card_key = None
+        st.session_state.scanned_shaban = ""
+        st.session_state.scanned_detail = ""
+        st.session_state.action_notice = ""
+        st.rerun()
+with col_dl:
+    st.write("")
+    csv_data = generate_upload_csv(df_base)
+    st.download_button(
+        label="📥 Upload.csv",
+        data=csv_data,
+        file_name="Upload.csv",
+        mime="text/csv",
+        use_container_width=True
+    )
+
+tab1, tab2, tab3 = st.tabs(["🔍 検索", "➕ 新規登録", "✏️ 編集・削除"])
+
+# ── 【タブ1】 検索・閲覧 ──
+with tab1:
+    st.write("車番の数字で素早く検索できます。")
+
+    st.text_input(
+        "🔍 車番を入力（例: 1, 8, 14 など）", 
+        key="search_box_main"
+    )
+
+    def on_num_click(val):

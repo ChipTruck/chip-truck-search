@@ -17,7 +17,7 @@ st.set_page_config(
 st.markdown("""
     <style>
     h1 {
-        font-size: 1.6rem !important;
+        font-size: 1.45rem !important;
         word-break: break-all;
     }
     [data-testid="stDataFrame"] {
@@ -33,13 +33,16 @@ st.markdown("""
         flex: 1 1 0% !important;
         min-width: 0 !important;
     }
-    div[data-testid="stHorizontalBlock"] button {
+    div[data-testid="stHorizontalBlock"] button, div[data-testid="stHorizontalBlock"] a {
         width: 100% !important;
-        height: 52px !important;
-        font-size: 1.25rem !important;
+        height: 48px !important;
+        font-size: 1.05rem !important;
         font-weight: bold !important;
         border-radius: 8px !important;
         padding: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
     }
     .vehicle-detail-card {
         background-color: #f8f9fa;
@@ -75,7 +78,7 @@ st.markdown("""
 FILE_PATH = "新_登録車両資料_連動版.xlsx"
 SHEET_NAME = "新_登録車両資料"
 
-# 文字列の表記ゆれ（全角半角コロン・空白）を統一する関数
+# 文字列の表記ゆれ統一
 def normalize_text(text):
     if not text:
         return ""
@@ -144,7 +147,7 @@ def load_raw_data():
             
     return df
 
-# アプリ全体で共有するデータの初期化
+# アプリ全体で共有するデータ
 if "app_df" not in st.session_state:
     st.session_state.app_df = load_raw_data()
 if "search_box_main" not in st.session_state:
@@ -169,7 +172,7 @@ if st.session_state.pending_key is not None:
     st.session_state.pending_key = None
     st.session_state.active_card_key = None
 
-# データフレームへ会社番号順に新規車両を挿入・ソートする関数
+# データフレームへ会社番号順に新規車両を挿入・ソート
 def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai):
     df = st.session_state.app_df.copy()
     
@@ -194,10 +197,8 @@ def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai)
 
     df['_comp_num'] = df['会社名'].apply(get_comp_code)
     df = df.sort_values(by=['_comp_num', '車番'], ascending=[True, True], kind='stable').drop(columns=['_comp_num']).reset_index(drop=True)
-    
     st.session_state.app_df = df
 
-    # Excelへの書き込み
     try:
         wb = openpyxl.load_workbook(FILE_PATH)
         ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
@@ -233,21 +234,18 @@ def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai)
     except Exception:
         pass
 
-# 車両の完全削除関数（全角半角のブレを完全吸収して消去）
+# 車両の完全削除
 def delete_vehicle_record(company_str, old_shaban, old_input_no):
     df = st.session_state.app_df.copy()
-    
     norm_c = normalize_text(company_str)
     norm_s = normalize_text(old_shaban)
     norm_inp = normalize_text(old_input_no)
 
-    # 画面上のデータから完全消去
     drop_indices = []
     for idx, r in df.iterrows():
         r_c = normalize_text(r.get('会社名', ''))
         r_s = normalize_text(r.get('車番', ''))
         r_inp = normalize_text(r.get('入力番号', ''))
-
         if (r_c == norm_c and r_s == norm_s) or (norm_inp and r_inp == norm_inp):
             drop_indices.append(idx)
 
@@ -255,7 +253,6 @@ def delete_vehicle_record(company_str, old_shaban, old_input_no):
         df = df.drop(index=drop_indices).reset_index(drop=True)
         st.session_state.app_df = df
 
-    # Excelファイルからも完全消去
     try:
         wb = openpyxl.load_workbook(FILE_PATH)
         ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
@@ -268,11 +265,9 @@ def delete_vehicle_record(company_str, old_shaban, old_input_no):
                 current_comp = c1
             c2 = normalize_text(ws.cell(row=r, column=2).value)
             c3 = normalize_text(ws.cell(row=r, column=3).value)
-
             if (current_comp == norm_c and c2 == norm_s) or (norm_inp and c3 == norm_inp):
                 rows_to_delete.append(r)
         
-        # 下の行から順番に削除
         for r in reversed(rows_to_delete):
             ws.delete_rows(r)
             
@@ -280,7 +275,7 @@ def delete_vehicle_record(company_str, old_shaban, old_input_no):
     except Exception:
         pass
 
-# 車両情報の更新関数
+# 車両情報の更新
 def update_vehicle_record(old_company, old_shaban, old_input_no, new_comp, new_shaban, new_input_no, new_detail, new_remark, new_fuutai):
     df = st.session_state.app_df.copy()
     norm_c = normalize_text(old_company)
@@ -322,15 +317,38 @@ def update_vehicle_record(old_company, old_shaban, old_input_no, new_comp, new_s
     except Exception:
         pass
 
+# ── Upload.csv 形式のCSVデータを生成する関数 ──
+def generate_upload_csv(df_source):
+    # A: Vehicle ID (入力番号) / B: Max weight (0固定) / C: Weight (風体)
+    rows = []
+    for _, r in df_source.iterrows():
+        v_id = str(r.get('入力番号', '')).strip()
+        fuutai_raw = str(r.get('風体', '')).strip()
+        
+        # 入力番号がある車両のみ対象
+        if v_id and v_id not in ["nan", "None"]:
+            # 風体から数字だけを抽出（例: "15550 kg" -> "15550"）
+            m_fuutai = re.findall(r'\d+', fuutai_raw)
+            fuutai_val = m_fuutai[0] if m_fuutai else "0"
+            rows.append({
+                'Vehicle ID': v_id,
+                'Max weight': 0,
+                'Weight': fuutai_val
+            })
+            
+    csv_df = pd.DataFrame(rows, columns=['Vehicle ID', 'Max weight', 'Weight'])
+    # UTF-8 with BOM (Excelや計量ソフトで文字化けしない形式)
+    return csv_df.to_csv(index=False, encoding='utf-8-sig')
+
 try:
     df_base = st.session_state.app_df
 
-    # ── ホームボタン ──
-    col_title, col_home = st.columns([3, 1])
+    # ── ヘッダー：タイトル ＆ ホーム ＆ Upload.csvダウンロードボタン ──
+    col_title, col_home, col_dl = st.columns([2.0, 0.9, 1.1])
     with col_title:
         st.title("🚗 車両管理＆検索")
     with col_home:
-        st.write("") 
+        st.write("")
         if st.button("🏠 ホーム", use_container_width=True):
             st.session_state.search_box_main = ""
             st.session_state.active_card_key = None
@@ -338,8 +356,19 @@ try:
             st.session_state.scanned_detail = ""
             st.session_state.action_notice = ""
             st.rerun()
+    with col_dl:
+        st.write("")
+        # Upload.csv 形式で一括ダウンロード
+        csv_data = generate_upload_csv(df_base)
+        st.download_button(
+            label="📥 Upload.csv",
+            data=csv_data,
+            file_name="Upload.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
 
-    tab1, tab2, tab3, tab4 = st.tabs(["🔍 検索", "➕ 新規登録", "✏️ 編集", "⭐ お気に入り"])
+    tab1, tab2, tab3 = st.tabs(["🔍 検索", "➕ 新規登録", "✏️ 編集・削除"])
 
     # ── 【タブ1】 検索・閲覧 ──
     with tab1:
@@ -435,7 +464,7 @@ try:
                 <div class="vehicle-detail-card">
                     <div class="card-title">🚗 車番: {target_row.get('車番', '-')}</div>
                     <div class="card-row"><span class="card-label">会社名:</span> <b>{target_row.get('会社名', '-')}</b></div>
-                    <div class="card-row"><span class="card-label">入力番号:</span> <b style="color: #d32f2f; font-size: 1.25rem;">{target_row.get('入力番号', '-')}</b></div>
+                    <div class="card-row"><span class="card-label">入力番号:</span> <b style="color: #d32f2f; font-size: 1.4rem;">{target_row.get('入力番号', '-')}</b></div>
                     <div class="card-row"><span class="card-label">詳細:</span> {target_row.get('詳細', '-')}</div>
                     <div class="card-row"><span class="card-label">備考:</span> {target_row.get('備考', '-')}</div>
                     <div class="card-row"><span class="card-label">風体:</span> {target_row.get('風体', '-')}</div>
@@ -551,7 +580,7 @@ try:
                 submitted = st.form_submit_button("💾 この内容で登録を保存", type="primary")
                 if submitted:
                     if not new_shaban:
-                        st.error("⚠️️ 車番を入力してください！")
+                        st.error("⚠️ 車番を入力してください！")
                     else:
                         try:
                             insert_vehicle_record(
@@ -570,7 +599,7 @@ try:
                         except Exception as ex:
                             st.error(f"⚠️ 保存中にエラーが発生しました: {ex}")
 
-    # ── 【タブ3】 編集・削除（完全消去対応） ──
+    # ── 【タブ3】 編集・削除 ──
     with tab3:
         st.subheader("✏️ 車両情報の編集・削除")
 
@@ -628,11 +657,6 @@ try:
                         st.rerun()
             else:
                 st.info("該当する車両が見つかりませんでした。")
-
-    # ── 【タブ4】 お気に入り ──
-    with tab4:
-        st.subheader("⭐ お気に入り")
-        st.info("登録されているお気に入りはありません。")
 
 except Exception as e:
     st.error(f"エラーが発生しました: {e}")

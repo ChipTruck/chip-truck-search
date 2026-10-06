@@ -14,7 +14,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# ── スタイル設定 ──
+# ── 見た目の調整＆鎖マーク完全消去CSS ──
 st.markdown("""
 <style>
 .app-main-title {
@@ -32,20 +32,6 @@ st.markdown("""
 
 a.anchor-link, [data-testid="stHeaderActionElements"] {
     display: none !important;
-}
-
-div[data-testid="stTextInput"] input {
-    font-size: 1.4rem !important;
-    height: 50px !important;
-    font-weight: bold !important;
-    border: 2px solid #1e88e5 !important;
-    border-radius: 8px !important;
-    padding: 0 12px !important;
-}
-
-div[data-testid="stForm"] {
-    border: none !important;
-    padding: 0 !important;
 }
 
 div[data-testid="stHorizontalBlock"] {
@@ -120,6 +106,7 @@ def normalize_text(text):
     t = s.replace("：", ":").replace(" ", "").replace(" ", "")
     return t.strip()
 
+# ── 常にPCと共通のExcel実ファイルからデータを読み込む ──
 @st.cache_data(ttl=5)
 def load_shared_excel_data():
     if not os.path.exists(FILE_PATH):
@@ -191,8 +178,9 @@ def load_shared_excel_data():
     df = df.sort_values(by=['_comp_num', '車番'], ascending=[True, True], kind='stable').drop(columns=['_comp_num']).reset_index(drop=True)
     return df
 
-if "search_query" not in st.session_state:
-    st.session_state.search_query = ""
+# URLクエリパラメータから検索文字を取得
+query_shaban = st.query_params.get("shaban", "")
+
 if "active_card_key" not in st.session_state:
     st.session_state.active_card_key = None
 if "scanned_shaban" not in st.session_state:
@@ -203,14 +191,11 @@ if "action_notice" not in st.session_state:
     st.session_state.action_notice = ""
 if "edit_search_keyword" not in st.session_state:
     st.session_state.edit_search_keyword = ""
-if "form_reset_counter" not in st.session_state:
-    st.session_state.form_reset_counter = 0
 
 def reset_to_home():
-    st.session_state.search_query = ""
-    st.session_state.active_card_key = None
-    st.session_state.action_notice = ""
-    st.session_state.form_reset_counter += 1
+    st.query_params.clear()
+    st.session_state["active_card_key"] = None
+    st.session_state["action_notice"] = ""
 
 def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai):
     wb = openpyxl.load_workbook(FILE_PATH)
@@ -326,7 +311,7 @@ def generate_upload_csv(df_source):
         fuutai_raw = safe_str(r.get('風体', ''))
         
         if v_id:
-            m_fuutai = re.findall(r'\d+', fuutai_raw)
+            m_fuutai = re.findall(r'\\d+', fuutai_raw)
             fuutai_val = m_fuutai[0] if m_fuutai else "0"
             rows.append({
                 'Vehicle ID': v_id,
@@ -359,31 +344,36 @@ tab1, tab2, tab3 = st.tabs(["🔍 検索", "➕ 新規登録", "✏️ 編集・
 
 # ── 【タブ1】 検索・閲覧 ──
 with tab1:
-    st.markdown("##### 🔍 車番を入力（例: 8, 14, 1351 など）")
+    st.markdown("##### 🔍 車番を入力（タップで数字テンキー起動）")
 
-    # 確実に動作するフォーム
-    form_key = f"search_form_{st.session_state.form_reset_counter}"
-    with st.form(form_key):
-        inp_val = st.text_input(
-            "車番を入力", 
-            value=st.session_state.search_query,
-            placeholder="タップして車番を入力",
-            label_visibility="collapsed"
-        )
-        c_search, c_clear = st.columns(2)
-        submit_search = c_search.form_submit_button("🔍 検索実行", type="primary", use_container_width=True)
-        submit_clear = c_clear.form_submit_button("✕ クリア", use_container_width=True)
+    # 100%数字テンキーが起動するHTMLネイティブ入力コンポーネント
+    html_search_code = (
+        '<!DOCTYPE html>'
+        '<html>'
+        '<head>'
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
+        '<style>'
+        'body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }'
+        '.input-box { width: 100%; height: 48px; font-size: 1.4rem; font-weight: bold; border: 2px solid #1e88e5; border-radius: 8px; padding: 0 12px; box-sizing: border-box; outline: none; margin-bottom: 8px; }'
+        '.btn-group { display: flex; gap: 8px; width: 100%; }'
+        '.btn-submit { flex: 1; height: 46px; background-color: #1e88e5; color: white; border: none; border-radius: 8px; font-size: 1.05rem; font-weight: bold; cursor: pointer; }'
+        '.btn-reset { flex: 1; height: 46px; background-color: #f1f3f4; color: #333; border: 1px solid #ccc; border-radius: 8px; font-size: 1.05rem; font-weight: bold; cursor: pointer; text-align: center; line-height: 46px; text-decoration: none; display: block; }'
+        '</style>'
+        '</head>'
+        '<body>'
+        '<form method="GET" target="_top">'
+        f'<input class="input-box" type="tel" name="shaban" inputmode="numeric" pattern="[0-9]*" placeholder="車番を入力 (例: 1351)" value="{query_shaban}" />'
+        '<div class="btn-group">'
+        '<button type="submit" class="btn-submit">🔍 検索実行</button>'
+        '<a href="?" target="_top" class="btn-reset">✕ クリア</a>'
+        '</div>'
+        '</form>'
+        '</body>'
+        '</html>'
+    )
+    components.html(html_search_code, height=115)
 
-        if submit_search:
-            st.session_state.search_query = inp_val.strip()
-            st.session_state.active_card_key = None
-            st.rerun()
-
-        if submit_clear:
-            reset_to_home()
-            st.rerun()
-
-    current_search = st.session_state.search_query.strip()
+    current_search = query_shaban.strip()
     filtered_df = df_base.copy()
     is_searched = bool(current_search)
 
@@ -394,7 +384,7 @@ with tab1:
 
         try:
             if '車番' in filtered_df.columns:
-                filtered_df['_sort_num'] = pd.to_numeric(filtered_df['車番'].str.extract(r'(\d+)', expand=False), errors='coerce')
+                filtered_df['_sort_num'] = pd.to_numeric(filtered_df['車番'].str.extract(r'(\\d+)', expand=False), errors='coerce')
                 filtered_df = filtered_df.sort_values(by='_sort_num', ascending=True, na_position='last')
                 filtered_df = filtered_df.drop(columns=['_sort_num'])
         except Exception:
@@ -460,7 +450,7 @@ with tab2:
     existing_companies = [c for c in df_base['会社名'].dropna().unique().tolist() if safe_str(c)]
     used_numbers = set()
     for c in existing_companies:
-        m = re.match(r'^(\d{1,2})[:：]', str(c).strip())
+        m = re.match(r'^(\\d{1,2})[:：]', str(c).strip())
         if m:
             used_numbers.add(int(m.group(1)))
     
@@ -476,7 +466,7 @@ with tab2:
 
     if comp_mode == "既存の会社から選ぶ" and existing_companies:
         selected_target_comp = st.selectbox("登録先の会社名を選択", existing_companies)
-        m = re.match(r'^(\d{1,2})[:：]', str(selected_target_comp).strip())
+        m = re.match(r'^(\\d{1,2})[:：]', str(selected_target_comp).strip())
         if m:
             comp_2digit_prefix = f"{int(m.group(1)):02d}"
     else:
@@ -520,7 +510,7 @@ with tab2:
                 except Exception:
                     pass
                 
-                nums = re.findall(r'\b\d{1,4}\b', extracted_text)
+                nums = re.findall(r'\\b\\d{1,4}\\b', extracted_text)
                 if nums:
                     st.session_state.scanned_shaban = nums[-1]
                     st.session_state.scanned_detail = extracted_text.strip().replace(chr(10), " ")

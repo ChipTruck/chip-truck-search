@@ -159,14 +159,16 @@ def load_shared_excel_data():
     
     for _, row in raw_df.iterrows():
         row_vals = [safe_str(val) for val in row.values if safe_str(val)]
-        row_text = " ".join(row_vals)
-        
-        if ":" in row_text or "：" in row_text:
-            for val in row_vals:
-                if ":" in val or "：" in val:
-                    current_comp = val.strip()
-                    break
-            continue 
+        if not row_vals:
+            continue
+
+        # 会社見出しの判定：行の最初の値に「:」があるときだけ見出しとみなす
+        # （登録日時「2026-10-06 11:46:00」の「:」で車両行が見出し扱いされて消える不具合の対策）
+        first_val = row_vals[0]
+        is_datetime = re.match(r'^\d{4}[-/]\d{1,2}[-/]\d{1,2}', first_val)
+        if (":" in first_val or "：" in first_val) and not is_datetime:
+            current_comp = first_val.strip()
+            continue
         
         if current_comp and len(row_vals) > 0:
             padded = [safe_str(v) for v in row.values]

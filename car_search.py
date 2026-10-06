@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import openpyxl
 import re
@@ -27,15 +28,6 @@ st.markdown("""
     
     [data-testid="stDataFrame"] {
         width: 100% !important;
-    }
-    
-    div[data-testid="stTextInput"] input {
-        font-size: 1.4rem !important;
-        height: 48px !important;
-        font-weight: bold !important;
-        border: 2px solid #1e88e5 !important;
-        border-radius: 8px !important;
-        padding: 0 12px !important;
     }
     
     div[data-testid="stHorizontalBlock"] {
@@ -90,23 +82,6 @@ st.markdown("""
         width: 85px;
     }
     </style>
-
-    <script>
-    function forceNumericKeypad() {
-        const doc = window.parent ? window.parent.document : document;
-        const inputs = doc.querySelectorAll('input[type="text"]');
-        inputs.forEach(inp => {
-            const label = inp.getAttribute('aria-label') || '';
-            if (label.includes('車番') || label.includes('search') || inp.id.includes('search')) {
-                inp.setAttribute('type', 'tel');
-                inp.setAttribute('inputmode', 'numeric');
-                inp.setAttribute('pattern', '[0-9]*');
-                inp.setAttribute('autocomplete', 'off');
-            }
-        });
-    }
-    setInterval(forceNumericKeypad, 400);
-    </script>
 """, unsafe_allow_html=True)
 
 FILE_PATH = "新_登録車両資料_連動版.xlsx"
@@ -127,7 +102,7 @@ def normalize_text(text):
     t = s.replace("：", ":").replace(" ", "").replace(" ", "")
     return t.strip()
 
-# ── 常にPCと共通のExcel実ファイルからデータを読み込む関数 ──
+# ── 常にPCと共通のExcel実ファイルからデータを読み込む ──
 @st.cache_data(ttl=5)
 def load_shared_excel_data():
     if not os.path.exists(FILE_PATH):
@@ -191,7 +166,6 @@ def load_shared_excel_data():
     for col in df.columns:
         df[col] = df[col].apply(safe_str)
         
-    # 会社番号順に整列
     def get_comp_code(val):
         m = re.match(r'^(\d{1,2})', safe_str(val))
         return int(m.group(1)) if m else 999
@@ -200,9 +174,10 @@ def load_shared_excel_data():
     df = df.sort_values(by=['_comp_num', '車番'], ascending=[True, True], kind='stable').drop(columns=['_comp_num']).reset_index(drop=True)
     return df
 
-# セッション状態の初期化
-if "search_input_widget" not in st.session_state:
-    st.session_state.search_input_widget = ""
+# URLクエリパラメータやセッションで検索文字を管理
+params = st.query_params
+search_query_val = params.get("q", "")
+
 if "active_card_key" not in st.session_state:
     st.session_state.active_card_key = None
 if "scanned_shaban" not in st.session_state:
@@ -215,11 +190,10 @@ if "edit_search_keyword" not in st.session_state:
     st.session_state.edit_search_keyword = ""
 
 def reset_to_home():
-    st.session_state["search_input_widget"] = ""
+    st.query_params.clear()
     st.session_state["active_card_key"] = None
     st.session_state["action_notice"] = ""
 
-# ── Excelファイルに直接挿入し、PCと即同期させる関数 ──
 def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai):
     wb = openpyxl.load_workbook(FILE_PATH)
     ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
@@ -277,9 +251,8 @@ def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai)
         ws.cell(row=ins_r + 1, column=8, value=now_str)
         
     wb.save(FILE_PATH)
-    st.cache_data.clear() # キャッシュを消去してPCもスマホも即座に最新データをロード
+    st.cache_data.clear()
 
-# ── Excelから直接行を完全消去する関数 ──
 def delete_vehicle_record(company_str, old_shaban, old_input_no):
     wb = openpyxl.load_workbook(FILE_PATH)
     ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
@@ -303,7 +276,6 @@ def delete_vehicle_record(company_str, old_shaban, old_input_no):
     wb.save(FILE_PATH)
     st.cache_data.clear()
 
-# ── Excelの既存行を直接更新する関数 ──
 def update_vehicle_record(old_company, old_shaban, old_input_no, new_comp, new_shaban, new_input_no, new_detail, new_remark, new_fuutai):
     wb = openpyxl.load_workbook(FILE_PATH)
     ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
@@ -347,7 +319,6 @@ def generate_upload_csv(df_source):
     csv_df = pd.DataFrame(rows, columns=['Vehicle ID', 'Max weight', 'Weight'])
     return csv_df.to_csv(index=False, encoding='utf-8-sig')
 
-# PC・スマホ共通の実データをロード
 df_base = load_shared_excel_data()
 
 # ── ヘッダー ──
@@ -370,21 +341,93 @@ tab1, tab2, tab3 = st.tabs(["🔍 検索", "➕ 新規登録", "✏️ 編集・
 
 # ── 【タブ1】 検索・閲覧 ──
 with tab1:
-    st.markdown("##### 🔍 車番を入力（例: 8, 14, 1234 など）")
+    st.markdown("##### 🔍 車番を入力（タップで数字テンキー起動）")
 
-    col_inp, col_clr = st.columns([3.2, 1.2])
-    with col_inp:
-        search_val = st.text_input(
-            "車番検索入力", 
-            key="search_input_widget",
-            placeholder="タップして数字入力",
-            label_visibility="collapsed"
-        )
-            
-    with col_clr:
-        st.button("クリア", on_click=reset_to_home, use_container_width=True)
+    # iPhoneで100%数字テンキーを開かせるHTMLネイティブ入力コンポーネント
+    html_search_bar = f"""
+    <div style="display: flex; gap: 8px; width: 100%; align-items: center; margin-bottom: 4px;">
+        <input 
+            id="num_input" 
+            type="tel" 
+            inputmode="numeric" 
+            pattern="[0-9]*" 
+            placeholder="数字タップで検索 (例: 1351)" 
+            value="{search_query_val}"
+            style="
+                flex: 1;
+                height: 48px;
+                font-size: 1.35rem;
+                font-weight: bold;
+                border: 2px solid #1e88e5;
+                border-radius: 8px;
+                padding: 0 12px;
+                outline: none;
+                box-sizing: border-box;
+            "
+        />
+        <button 
+            id="btn_search"
+            style="
+                width: 75px;
+                height: 48px;
+                background-color: #1e88e5;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-size: 1.05rem;
+                font-weight: bold;
+                cursor: pointer;
+            "
+        >検索</button>
+        <button 
+            id="btn_clear"
+            style="
+                width: 75px;
+                height: 48px;
+                background-color: #f1f3f4;
+                color: #333;
+                border: 1px solid #ccc;
+                border-radius: 8px;
+                font-size: 1.05rem;
+                font-weight: bold;
+                cursor: pointer;
+            "
+        >クリア</button>
+    </div>
+    <script>
+        const input = document.getElementById('num_input');
+        const btnSearch = document.getElementById('btn_search');
+        const btnClear = document.getElementById('btn_clear');
 
-    current_search = search_val.strip()
+        function doSearch(val) {{
+            const url = new URL(window.parent.location.href);
+            if (val) {{
+                url.searchParams.set('q', val);
+            }} else {{
+                url.searchParams.delete('q');
+            }}
+            window.parent.location.href = url.toString();
+        }}
+
+        btnSearch.addEventListener('click', () => {{
+            doSearch(input.value.trim());
+        }});
+
+        input.addEventListener('keydown', (e) => {{
+            if (e.key === 'Enter') {{
+                doSearch(input.value.trim());
+            }}
+        }});
+
+        btnClear.addEventListener('click', () => {{
+            input.value = '';
+            doSearch('');
+        }});
+    </script>
+    """
+    components.html(html_search_bar, height=58)
+
+    current_search = search_query_val.strip()
     filtered_df = df_base.copy()
     is_searched = bool(current_search)
 
@@ -487,7 +530,7 @@ with tab2:
             if not new_comp_code.isdigit() or len(new_comp_code) != 2:
                 st.warning("⚠️ 会社番号は半角数字2桁（00〜99）で入力してください。")
             elif int(new_comp_code) in used_numbers:
-                st.error(f"⚠️️ 番号「{new_comp_code}」は既に使われています！別の空き番号を指定してください。")
+                st.error(f"⚠️ 番号「{new_comp_code}」は既に使われています！別の空き番号を指定してください。")
             else:
                 st.info(f"💡 番号「{new_comp_code}」は空いています。利用可能です！")
 
@@ -550,7 +593,7 @@ with tab2:
             submitted = st.form_submit_button("💾 この内容で登録を保存", type="primary")
             if submitted:
                 if not new_shaban:
-                    st.error("⚠️ 車番を入力してください！")
+                    st.error("⚠️️ 車番を入力してください！")
                 else:
                     try:
                         insert_vehicle_record(
@@ -585,7 +628,7 @@ with tab3:
             empty_shaban_count += 1
 
     if empty_shaban_count > 0:
-        if st.button(f"⚠️ 車番が未入力の車両（{empty_shaban_count}台）を抽出する", use_container_width=True):
+        if st.button(f"⚠️️ 車番が未入力の車両（{empty_shaban_count}台）を抽出する", use_container_width=True):
             st.session_state.edit_search_keyword = "車番未設定"
 
     edit_search_val = st.text_input(

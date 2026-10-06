@@ -174,7 +174,7 @@ def load_shared_excel_data():
     df = df.sort_values(by=['_comp_num', '車番'], ascending=[True, True], kind='stable').drop(columns=['_comp_num']).reset_index(drop=True)
     return df
 
-# URLクエリパラメータやセッションで検索文字を管理
+# URLクエリパラメータで検索文字を管理
 params = st.query_params
 search_query_val = params.get("q", "")
 
@@ -343,18 +343,18 @@ tab1, tab2, tab3 = st.tabs(["🔍 検索", "➕ 新規登録", "✏️ 編集・
 with tab1:
     st.markdown("##### 🔍 車番を入力（タップで数字テンキー起動）")
 
-    # iPhoneで100%数字テンキーを開かせるHTMLネイティブ入力コンポーネント
+    # 2段構成：上段にフル幅の入力枠、下段に押しやすい2つの横並びボタン
     html_search_bar = f"""
-    <div style="display: flex; gap: 8px; width: 100%; align-items: center; margin-bottom: 4px;">
+    <div style="width: 100%; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding-right: 4px;">
         <input 
             id="num_input" 
             type="tel" 
             inputmode="numeric" 
             pattern="[0-9]*" 
-            placeholder="数字タップで検索 (例: 1351)" 
+            placeholder="車番を入力 (例: 1351)" 
             value="{search_query_val}"
             style="
-                flex: 1;
+                width: 100%;
                 height: 48px;
                 font-size: 1.35rem;
                 font-weight: bold;
@@ -363,36 +363,39 @@ with tab1:
                 padding: 0 12px;
                 outline: none;
                 box-sizing: border-box;
+                margin-bottom: 8px;
             "
         />
-        <button 
-            id="btn_search"
-            style="
-                width: 75px;
-                height: 48px;
-                background-color: #1e88e5;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                font-size: 1.05rem;
-                font-weight: bold;
-                cursor: pointer;
-            "
-        >検索</button>
-        <button 
-            id="btn_clear"
-            style="
-                width: 75px;
-                height: 48px;
-                background-color: #f1f3f4;
-                color: #333;
-                border: 1px solid #ccc;
-                border-radius: 8px;
-                font-size: 1.05rem;
-                font-weight: bold;
-                cursor: pointer;
-            "
-        >クリア</button>
+        <div style="display: flex; gap: 8px; width: 100%;">
+            <button 
+                id="btn_search"
+                style="
+                    flex: 1;
+                    height: 44px;
+                    background-color: #1e88e5;
+                    color: white;
+                    border: none;
+                    border-radius: 8px;
+                    font-size: 1.05rem;
+                    font-weight: bold;
+                    cursor: pointer;
+                "
+            >🔍 検索実行</button>
+            <button 
+                id="btn_clear"
+                style="
+                    flex: 1;
+                    height: 44px;
+                    background-color: #f1f3f4;
+                    color: #333;
+                    border: 1px solid #ccc;
+                    border-radius: 8px;
+                    font-size: 1.05rem;
+                    font-weight: bold;
+                    cursor: pointer;
+                "
+            >✕ クリア</button>
+        </div>
     </div>
     <script>
         const input = document.getElementById('num_input');
@@ -425,7 +428,7 @@ with tab1:
         }});
     </script>
     """
-    components.html(html_search_bar, height=58)
+    components.html(html_search_bar, height=110)
 
     current_search = search_query_val.strip()
     filtered_df = df_base.copy()
@@ -593,7 +596,7 @@ with tab2:
             submitted = st.form_submit_button("💾 この内容で登録を保存", type="primary")
             if submitted:
                 if not new_shaban:
-                    st.error("⚠️️ 車番を入力してください！")
+                    st.error("⚠️ 車番を入力してください！")
                 else:
                     try:
                         insert_vehicle_record(
@@ -628,7 +631,7 @@ with tab3:
             empty_shaban_count += 1
 
     if empty_shaban_count > 0:
-        if st.button(f"⚠️️ 車番が未入力の車両（{empty_shaban_count}台）を抽出する", use_container_width=True):
+        if st.button(f"⚠️ 車番が未入力の車両（{empty_shaban_count}台）を抽出する", use_container_width=True):
             st.session_state.edit_search_keyword = "車番未設定"
 
     edit_search_val = st.text_input(

@@ -2,6 +2,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 import openpyxl
+from openpyxl.cell.cell import MergedCell
 import re
 import os
 from datetime import datetime
@@ -165,8 +166,7 @@ def load_shared_excel_data():
         # 会社見出しの判定：行の最初の値に「:」があるときだけ見出しとみなす
         # （登録日時「2026-10-06 11:46:00」の「:」で車両行が見出し扱いされて消える不具合の対策）
         first_val = row_vals[0]
-        is_datetime = re.match(r'^\d{4}[-/]\d{1,2}[-/]\d{1,2}', first_val)
-        if (":" in first_val or "：" in first_val) and not is_datetime:
+        if _is_company_header(first_val):
             current_comp = first_val.strip()
             continue
         
@@ -235,6 +235,81 @@ def reset_to_home():
     st.session_state.action_notice = ""
     st.session_state.form_reset_counter += 1
 
+# ── Excel操作の補助（結合セル対策） ──
+def _is_company_header(text):
+    t = safe_str(text)
+    if not t:
+        return False
+    if re.match(r'^\d{4}[-/]\d{1,2}[-/]\d{1,2}', t):
+        return False
+    return (":" in t) or ("：" in t)
+
+def _set_cell(ws, row, col, value):
+    """結合セルだった場合は結合を解除してから書き込む"""
+    cell = ws.cell(row=row, column=col)
+    if isinstance(cell, MergedCell):
+        for mr in list(ws.merged_cells.ranges):
+            if cell.coordinate in mr:
+                ws.unmerge_cells(mr.coord)
+                break
+    ws.cell(row=row, column=col).value = value
+
+def _insert_rows_safe(ws, idx, amount=1):
+    """行を挿入するとき、結合セルの位置も一緒にずらす（openpyxlは自動でずらさないため）"""
+    saved = []
+    for mr in list(ws.merged_cells.ranges):
+        if mr.max_row >= idx:
+            saved.append((mr.min_row, mr.min_col, mr.max_row, mr.max_col))
+            ws.unmerge_cells(mr.coord)
+    ws.insert_rows(idx, amount)
+    for r1, c1, r2, c2 in saved:
+        if r1 >= idx:
+            r1 += amount
+            r2 += amount
+        else:
+            r2 += amount
+        ws.merge_cells(start_row=r1, start_column=c1, end_row=r2, end_column=c2)
+
+def _delete_row_safe(ws, idx):
+    """行を削除するとき、結合セルの位置も一緒にずらす"""
+    saved = []
+    for mr in list(ws.merged_cells.ranges):
+        if mr.max_row >= idx:
+            saved.append((mr.min_row, mr.min_col, mr.max_row, mr.max_col))
+            ws.unmerge_cells(mr.coord)
+    ws.delete_rows(idx)
+    for r1, c1, r2, c2 in saved:
+        if r1 > idx:
+            r1 -= 1
+            r2 -= 1
+        else:
+            r2 -= 1
+        if r2 < r1 or (r1 == r2 and c1 == c2):
+            continue
+        ws.merge_cells(start_row=r1, start_column=c1, end_row=r2, end_column=c2)
+
+def _find_vehicle_row(ws, company_str, shaban, input_no):
+    """会社見出し行・空行を除いて、対象の車両行を1行だけ探す"""
+    norm_c = normalize_text(company_str)
+    norm_s = normalize_text(shaban)
+    norm_inp = normalize_text(input_no)
+
+    current_comp = ""
+    for r in range(1, ws.max_row + 1):
+        c1 = ws.cell(row=r, column=1).value
+        if _is_company_header(c1):
+            current_comp = normalize_text(c1)
+            continue
+        vals = [normalize_text(ws.cell(row=r, column=c).value) for c in range(2, 6)]
+        if not any(vals):
+            continue
+        c2, c3 = vals[0], vals[1]
+        if norm_inp and c3 == norm_inp:
+            return r
+        if current_comp == norm_c and c2 == norm_s:
+            return r
+    return None
+
 def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai):
     wb = openpyxl.load_workbook(FILE_PATH)
     ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
@@ -264,32 +339,27 @@ def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai)
     if comp_row_idx is not None:
         insert_target = comp_row_idx + 1
         while insert_target <= ws.max_row:
-            cell_v = str(ws.cell(row=insert_target, column=1).value or "").strip()
-            if (":" in cell_v or "：" in cell_v) and normalize_text(cell_v) != normalize_text(company_str):
+            cell_v = ws.cell(row=insert_target, column=1).value
+            if _is_company_header(cell_v) and normalize_text(cell_v) != normalize_text(company_str):
                 break
             insert_target += 1
         
-        ws.insert_rows(insert_target)
-        ws.cell(row=insert_target, column=1, value="")
-        ws.cell(row=insert_target, column=2, value=str(shaban))
-        ws.cell(row=insert_target, column=3, value=str(input_no))
-        ws.cell(row=insert_target, column=4, value=str(detail))
-        ws.cell(row=insert_target, column=5, value=str(remark))
-        ws.cell(row=insert_target, column=6, value="")
-        ws.cell(row=insert_target, column=7, value=str(fuutai))
-        ws.cell(row=insert_target, column=8, value=now_str)
+        _insert_rows_safe(ws, insert_target)
+        data_row = insert_target
     else:
         ins_r = insert_before_row if insert_before_row is not None else (ws.max_row + 1)
-        ws.insert_rows(ins_r, amount=2)
-        ws.cell(row=ins_r, column=1, value=str(company_str))
-        ws.cell(row=ins_r + 1, column=1, value="")
-        ws.cell(row=ins_r + 1, column=2, value=str(shaban))
-        ws.cell(row=ins_r + 1, column=3, value=str(input_no))
-        ws.cell(row=ins_r + 1, column=4, value=str(detail))
-        ws.cell(row=ins_r + 1, column=5, value=str(remark))
-        ws.cell(row=ins_r + 1, column=6, value="")
-        ws.cell(row=ins_r + 1, column=7, value=str(fuutai))
-        ws.cell(row=ins_r + 1, column=8, value=now_str)
+        _insert_rows_safe(ws, ins_r, amount=2)
+        _set_cell(ws, ins_r, 1, str(company_str))
+        data_row = ins_r + 1
+
+    _set_cell(ws, data_row, 1, "")
+    _set_cell(ws, data_row, 2, str(shaban))
+    _set_cell(ws, data_row, 3, str(input_no))
+    _set_cell(ws, data_row, 4, str(detail))
+    _set_cell(ws, data_row, 5, str(remark))
+    _set_cell(ws, data_row, 6, "")
+    _set_cell(ws, data_row, 7, str(fuutai))
+    _set_cell(ws, data_row, 8, now_str)
         
     wb.save(FILE_PATH)
     st.cache_data.clear()
@@ -297,48 +367,29 @@ def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai)
 def delete_vehicle_record(company_str, old_shaban, old_input_no):
     wb = openpyxl.load_workbook(FILE_PATH)
     ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
-    norm_c = normalize_text(company_str)
-    norm_s = normalize_text(old_shaban)
-    norm_inp = normalize_text(old_input_no)
 
-    current_comp = ""
-    rows_to_delete = []
-    for r in range(1, ws.max_row + 1):
-        c1 = normalize_text(ws.cell(row=r, column=1).value)
-        if ":" in c1:
-            current_comp = c1
-        c2 = normalize_text(ws.cell(row=r, column=2).value)
-        c3 = normalize_text(ws.cell(row=r, column=3).value)
-        if (norm_inp and c3 == norm_inp) or (current_comp == norm_c and (c2 == norm_s or (not norm_s and not c2))):
-            rows_to_delete.append(r)
-    
-    for r in reversed(rows_to_delete):
-        ws.delete_rows(r)
+    r = _find_vehicle_row(ws, company_str, old_shaban, old_input_no)
+    if r is None:
+        raise ValueError("削除する車両がExcel内に見つかりませんでした。")
+    _delete_row_safe(ws, r)
+
     wb.save(FILE_PATH)
     st.cache_data.clear()
 
 def update_vehicle_record(old_company, old_shaban, old_input_no, new_comp, new_shaban, new_input_no, new_detail, new_remark, new_fuutai):
     wb = openpyxl.load_workbook(FILE_PATH)
     ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
-    norm_c = normalize_text(old_company)
-    norm_s = normalize_text(old_shaban)
-    norm_inp = normalize_text(old_input_no)
 
-    current_comp = ""
-    for r in range(1, ws.max_row + 1):
-        c1 = normalize_text(ws.cell(row=r, column=1).value)
-        if ":" in c1:
-            current_comp = c1
-        c2 = normalize_text(ws.cell(row=r, column=2).value)
-        c3 = normalize_text(ws.cell(row=r, column=3).value)
+    r = _find_vehicle_row(ws, old_company, old_shaban, old_input_no)
+    if r is None:
+        raise ValueError("更新する車両がExcel内に見つかりませんでした。")
 
-        if (norm_inp and c3 == norm_inp) or (current_comp == norm_c and (c2 == norm_s or (not norm_s and not c2))):
-            ws.cell(row=r, column=2, value=str(new_shaban))
-            ws.cell(row=r, column=3, value=str(new_input_no))
-            ws.cell(row=r, column=4, value=str(new_detail))
-            ws.cell(row=r, column=5, value=str(new_remark))
-            ws.cell(row=r, column=7, value=str(new_fuutai))
-            break
+    _set_cell(ws, r, 2, str(new_shaban))
+    _set_cell(ws, r, 3, str(new_input_no))
+    _set_cell(ws, r, 4, str(new_detail))
+    _set_cell(ws, r, 5, str(new_remark))
+    _set_cell(ws, r, 7, str(new_fuutai))
+
     wb.save(FILE_PATH)
     st.cache_data.clear()
 
@@ -704,18 +755,24 @@ with tab3:
                 del_clicked = c2.form_submit_button("この車両を削除")
 
                 if save_clicked:
-                    update_vehicle_record(
-                        target_old_comp, target_old_shaban, target_old_input_no,
-                        e_comp, e_shaban, e_input, e_detail, e_remark, e_fuutai
-                    )
-                    st.session_state.action_notice = f"車両情報（車番「{e_shaban}」）の内容を更新・保存しました！"
-                    st.toast("変更を保存しました！")
-                    st.rerun()
+                    try:
+                        update_vehicle_record(
+                            target_old_comp, target_old_shaban, target_old_input_no,
+                            e_comp, e_shaban, e_input, e_detail, e_remark, e_fuutai
+                        )
+                        st.session_state.action_notice = f"車両情報（車番「{e_shaban}」）の内容を更新・保存しました！"
+                        st.toast("変更を保存しました！")
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"保存中にエラーが発生しました: {ex}")
 
                 if del_clicked:
-                    delete_vehicle_record(target_old_comp, target_old_shaban, target_old_input_no)
-                    st.session_state.action_notice = f"会社「{target_old_comp}」の車両を完全に消去しました！"
-                    st.toast("データを消去しました！")
-                    st.rerun()
+                    try:
+                        delete_vehicle_record(target_old_comp, target_old_shaban, target_old_input_no)
+                        st.session_state.action_notice = f"会社「{target_old_comp}」の車両を完全に消去しました！"
+                        st.toast("データを消去しました！")
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"削除中にエラーが発生しました: {ex}")
         else:
             st.info("該当する車両が見つかりませんでした。別のキーワード（会社名や詳細など）をお試しください。")

@@ -14,7 +14,7 @@ st.set_page_config(
 )
 
 # ── スタイル設定 ──
-st.markdown("""
+st.markdown('''
 <style>
 .app-main-title {
     font-size: 1.55rem !important;
@@ -70,7 +70,6 @@ div[data-testid="stHorizontalBlock"] button, div[data-testid="stHorizontalBlock"
     justify-content: center !important;
 }
 
-/* ── 車両カードのデザイン（風体特大・視認性UP） ── */
 .vehicle-detail-card {
     background-color: #ffffff;
     border: 2px solid #1e88e5;
@@ -99,7 +98,6 @@ div[data-testid="stHorizontalBlock"] button, div[data-testid="stHorizontalBlock"
     display: inline-block;
     width: 85px;
 }
-/* 超特大の風体ハイライト表示ボックス */
 .fuutai-box {
     background: #eef7ff;
     border: 2px solid #1e88e5;
@@ -122,7 +120,7 @@ div[data-testid="stHorizontalBlock"] button, div[data-testid="stHorizontalBlock"
     letter-spacing: 1px;
 }
 </style>
-""", unsafe_allow_html=True)
+''', unsafe_allow_html=True)
 
 FILE_PATH = "新_登録車両資料_連動版.xlsx"
 SHEET_NAME = "新_登録車両資料"
@@ -459,20 +457,19 @@ with tab1:
             c_rm = target_row.get('備考', '-')
             c_ft = target_row.get('風体', '-')
             
-            # 風体と入力番号を特大表示にした現場最適化カード
-            card_html = f"""
-            <div class="vehicle-detail-card">
-                <div class="card-title">🚗 車番: {c_sh}</div>
-                <div class="card-row"><span class="card-label">会社名:</span> <b>{c_cp}</b></div>
-                <div class="card-row"><span class="card-label">入力番号:</span> <b style="color: #d32f2f; font-size: 1.55rem; letter-spacing: 1px;">{c_in}</b></div>
-                <div class="card-row"><span class="card-label">詳細:</span> {c_dt}</div>
-                <div class="card-row"><span class="card-label">備考:</span> <b>{c_rm}</b></div>
-                <div class="fuutai-box">
-                    <span class="fuutai-label">⚖️ 風体</span>
-                    <span class="fuutai-val">{c_ft}</span>
-                </div>
-            </div>
-            """
+            card_html = (
+                '<div class="vehicle-detail-card">'
+                f'<div class="card-title">🚗 車番: {c_sh}</div>'
+                f'<div class="card-row"><span class="card-label">会社名:</span> <b>{c_cp}</b></div>'
+                f'<div class="card-row"><span class="card-label">入力番号:</span> <b style="color: #d32f2f; font-size: 1.55rem; letter-spacing: 1px;">{c_in}</b></div>'
+                f'<div class="card-row"><span class="card-label">詳細:</span> {c_dt}</div>'
+                f'<div class="card-row"><span class="card-label">備考:</span> <b>{c_rm}</b></div>'
+                '<div class="fuutai-box">'
+                '<span class="fuutai-label">⚖️ 風体</span>'
+                f'<span class="fuutai-val">{c_ft}</span>'
+                '</div>'
+                '</div>'
+            )
             st.markdown(card_html, unsafe_allow_html=True)
 
 # ── 【タブ2】 新規登録 ──
@@ -516,28 +513,28 @@ with tab2:
 
         if new_comp_code:
             if not new_comp_code.isdigit() or len(new_comp_code) != 2:
-                st.warning("⚠️ 会社番号は半角数字2桁（00〜99）で入力してください。")
+                st.warning("会社番号は半角数字2桁（00〜99）で入力してください。")
             elif int(new_comp_code) in used_numbers:
-                st.error(f"⚠️ 番号「{new_comp_code}」は既に使われています！別の空き番号を指定してください。")
+                st.error(f"番号「{new_comp_code}」は既に使われています！別の空き番号を指定してください。")
             else:
-                st.info(f"💡 番号「{new_comp_code}」は空いています。利用可能です！")
+                st.info(f"番号「{new_comp_code}」は空いています。利用可能です！")
 
         if new_comp_code and new_comp_raw_name:
             selected_target_comp = f"{new_comp_code}：{new_comp_raw_name.strip()}"
             comp_2digit_prefix = new_comp_code
 
     st.write("---")
-    with st.expander("📷 カメラ撮影 / 画像アップロードで自動入力する", expanded=False):
+    with st.expander("カメラ撮影 / 画像アップロードで自動入力する", expanded=False):
         upload_choice = st.radio("入力方法", ["カメラで撮影", "写真をアップロード"], horizontal=True)
         uploaded_image = None
         if upload_choice == "カメラで撮影":
-            uploaded_image = st.camera_input("📷 シャッターを押して撮影")
+            uploaded_image = st.camera_input("シャッターを押して撮影")
         else:
-            uploaded_image = st.file_uploader("📁 写真ファイルを選択", type=["jpg", "jpeg", "png"])
+            uploaded_image = st.file_uploader("写真ファイルを選択", type=["jpg", "jpeg", "png"])
 
         if uploaded_image is not None:
             st.image(uploaded_image, caption="取り込んだ画像", width=250)
-            if st.button("✨ 画像から車番・ナンバーを読み取る", use_container_width=True):
+            if st.button("画像から車番・ナンバーを読み取る", use_container_width=True):
                 extracted_text = ""
                 try:
                     import pytesseract
@@ -549,18 +546,19 @@ with tab2:
                 nums = re.findall(r'\b\d{1,4}\b', extracted_text)
                 if nums:
                     st.session_state.scanned_shaban = nums[-1]
-                    st.session_state.scanned_detail = extracted_text.strip().replace("\n", " ")
-                    st.success(f"🔍 読み取り成功！ 車番「{st.session_state.scanned_shaban}」を下に入力しました。")
+                    clean_detail = extracted_text.strip().replace(chr(10), " ")
+                    st.session_state.scanned_detail = clean_detail
+                    st.success(f"読み取り成功！ 車番「{st.session_state.scanned_shaban}」を下に入力しました。")
                 else:
-                    st.info("💡 画像を受け付けました。下のカードで必要項目を確認・入力してください。")
+                    st.info("画像を受け付けました。下のカードで必要項目を確認・入力してください。")
                 st.rerun()
 
     if selected_target_comp:
-        st.markdown(f"""
+        st.markdown(f'''
         <div class="vehicle-detail-card">
             <div class="card-title">📝 【{selected_target_comp}】の新規車両カード</div>
         </div>
-        """, unsafe_allow_html=True)
+        ''', unsafe_allow_html=True)
 
         with st.form("new_vehicle_form_card"):
             new_shaban = st.text_input(
@@ -578,7 +576,125 @@ with tab2:
             new_remark = st.text_input("備考（例: 4t車、大型など）")
             new_fuutai = st.text_input("風体")
 
-            submitted = st.form_submit_button("💾 この内容で登録を保存", type="primary")
+            submitted = st.form_submit_button("この内容で登録を保存", type="primary")
             if submitted:
                 if not new_shaban:
-                    st.error("⚠️ 車番
+                    st.error("車番を入力してください！")
+                else:
+                    try:
+                        insert_vehicle_record(
+                            selected_target_comp,
+                            new_shaban,
+                            new_input_no,
+                            new_detail,
+                            new_remark,
+                            new_fuutai
+                        )
+                        st.session_state.scanned_shaban = ""
+                        st.session_state.scanned_detail = ""
+                        st.session_state.action_notice = f"会社「{selected_target_comp}」に 車番「{new_shaban}」を追加しました！PC・スマホ共に反映されています。"
+                        st.toast("登録が完了しました！")
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"保存中にエラーが発生しました: {ex}")
+
+# ── 【タブ3】 編集・削除 ──
+with tab3:
+    st.subheader("✏️ 車両情報の編集・削除")
+
+    if st.session_state.action_notice:
+        st.success(st.session_state.action_notice)
+        st.session_state.action_notice = ""
+
+    st.write("車番、会社名、入力番号、詳細（ナンバー）のいずれかで検索できます。")
+
+    empty_shaban_count = 0
+    for _, r in df_base.iterrows():
+        if not safe_str(r.get('車番', '')):
+            empty_shaban_count += 1
+
+    if empty_shaban_count > 0:
+        if st.button(f"車番が未入力の車両（{empty_shaban_count}台）を抽出する", use_container_width=True):
+            st.session_state.edit_search_keyword = "車番未設定"
+
+    edit_search_val = st.text_input(
+        "🔍 検索キーワード（例: 8、細川、058、吉田 など）", 
+        value=st.session_state.get("edit_search_keyword", ""),
+        key="edit_search_input_box"
+    )
+    st.session_state.edit_search_keyword = edit_search_val
+
+    if edit_search_val:
+        s_term = edit_search_val.strip()
+        
+        matched_indices = []
+        if s_term == "車番未設定":
+            for idx, r in df_base.iterrows():
+                if not safe_str(r.get('車番', '')):
+                    matched_indices.append(idx)
+        else:
+            for idx, r in df_base.iterrows():
+                shaban_str = safe_str(r.get('車番', ''))
+                comp_str = safe_str(r.get('会社名', ''))
+                inp_str = safe_str(r.get('入力番号', ''))
+                detail_str = safe_str(r.get('詳細', ''))
+                
+                if (s_term.lower() in shaban_str.lower() or 
+                    s_term.lower() in comp_str.lower() or 
+                    s_term.lower() in inp_str.lower() or 
+                    s_term.lower() in detail_str.lower()):
+                    matched_indices.append(idx)
+
+        matched = df_base.loc[matched_indices] if matched_indices else pd.DataFrame()
+
+        if len(matched) > 0:
+            car_choices = []
+            for _, r in matched.iterrows():
+                c_shaban = safe_str(r.get('車番', '')) or '(車番未設定)'
+                c_comp = safe_str(r.get('会社名', ''))
+                c_inp = safe_str(r.get('入力番号', ''))
+                c_detail = safe_str(r.get('詳細', ''))
+                car_choices.append(f"🚗 車番: {c_shaban} | {c_comp} (入力番号: {c_inp} / 詳細: {c_detail})")
+
+            selected_edit_car = st.selectbox("対象の車両を決定してください", car_choices)
+            
+            edit_idx = car_choices.index(selected_edit_car)
+            target_edit_row = matched.iloc[edit_idx]
+            target_old_comp = safe_str(target_edit_row.get('会社名', ''))
+            target_old_shaban = safe_str(target_edit_row.get('車番', ''))
+            target_old_input_no = safe_str(target_edit_row.get('入力番号', ''))
+
+            st.markdown(f'''
+            <div class="vehicle-detail-card">
+                <div class="card-title">✏️ 車両編集・削除カード: {target_old_shaban or '（車番未設定）'}</div>
+            </div>
+            ''', unsafe_allow_html=True)
+
+            with st.form("card_edit_form"):
+                e_comp = st.text_input("会社名", value=target_old_comp)
+                e_shaban = st.text_input("車番（ここに番号を入力）", value=target_old_shaban)
+                e_input = st.text_input("入力番号", value=target_old_input_no)
+                e_detail = st.text_input("詳細", value=safe_str(target_edit_row.get('詳細', '')))
+                e_remark = st.text_input("備考", value=safe_str(target_edit_row.get('備考', '')))
+                e_fuutai = st.text_input("風体", value=safe_str(target_edit_row.get('風体', '')))
+
+                c1, c2 = st.columns(2)
+                save_clicked = c1.form_submit_button("変更を保存", type="primary")
+                del_clicked = c2.form_submit_button("この車両を削除")
+
+                if save_clicked:
+                    update_vehicle_record(
+                        target_old_comp, target_old_shaban, target_old_input_no,
+                        e_comp, e_shaban, e_input, e_detail, e_remark, e_fuutai
+                    )
+                    st.session_state.action_notice = f"車両情報（車番「{e_shaban}」）の内容を更新・保存しました！"
+                    st.toast("変更を保存しました！")
+                    st.rerun()
+
+                if del_clicked:
+                    delete_vehicle_record(target_old_comp, target_old_shaban, target_old_input_no)
+                    st.session_state.action_notice = f"会社「{target_old_comp}」の車両を完全に消去しました！"
+                    st.toast("データを消去しました！")
+                    st.rerun()
+        else:
+            st.info("該当する車両が見つかりませんでした。別のキーワード（会社名や詳細など）をお試しください。")

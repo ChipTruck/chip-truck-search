@@ -16,7 +16,6 @@ st.set_page_config(
 # ── スマホでも崩れない＆高さピッタリ配置CSS ──
 st.markdown("""
     <style>
-    /* タイトル */
     .app-main-title {
         font-size: 1.55rem !important;
         font-weight: bold !important;
@@ -30,7 +29,6 @@ st.markdown("""
         width: 100% !important;
     }
     
-    /* 入力ボックスとボタンの高さを完全に揃える（48px統一） */
     div[data-testid="stTextInput"] input {
         font-size: 1.4rem !important;
         height: 48px !important;
@@ -63,7 +61,6 @@ st.markdown("""
         justify-content: center !important;
     }
     
-    /* カードスタイル */
     .vehicle-detail-card {
         background-color: #f8f9fa;
         border: 2px solid #1e88e5;
@@ -94,7 +91,6 @@ st.markdown("""
     }
     </style>
 
-    <!-- iPhone/Androidでタップ時に数字キーボード（電話テンキー）を一発で開く強力スクリプト -->
     <script>
     function forceNumericKeypad() {
         const doc = window.parent ? window.parent.document : document;
@@ -131,7 +127,9 @@ def normalize_text(text):
     t = s.replace("：", ":").replace(" ", "").replace(" ", "")
     return t.strip()
 
-def load_raw_data():
+# ── 常にPCと共通のExcel実ファイルからデータを読み込む関数 ──
+@st.cache_data(ttl=5)
+def load_shared_excel_data():
     if not os.path.exists(FILE_PATH):
         return pd.DataFrame(columns=['会社名', '車番', '入力番号', '詳細', '備考', '風体'])
 
@@ -193,11 +191,16 @@ def load_raw_data():
     for col in df.columns:
         df[col] = df[col].apply(safe_str)
         
+    # 会社番号順に整列
+    def get_comp_code(val):
+        m = re.match(r'^(\d{1,2})', safe_str(val))
+        return int(m.group(1)) if m else 999
+
+    df['_comp_num'] = df['会社名'].apply(get_comp_code)
+    df = df.sort_values(by=['_comp_num', '車番'], ascending=[True, True], kind='stable').drop(columns=['_comp_num']).reset_index(drop=True)
     return df
 
 # セッション状態の初期化
-if "app_df" not in st.session_state:
-    st.session_state.app_df = load_raw_data()
 if "search_input_widget" not in st.session_state:
     st.session_state.search_input_widget = ""
 if "active_card_key" not in st.session_state:
@@ -211,152 +214,120 @@ if "action_notice" not in st.session_state:
 if "edit_search_keyword" not in st.session_state:
     st.session_state.edit_search_keyword = ""
 
-# 検索欄と表示状態を完全にリセットする関数（コールバック）
 def reset_to_home():
     st.session_state["search_input_widget"] = ""
     st.session_state["active_card_key"] = None
     st.session_state["action_notice"] = ""
 
+# ── Excelファイルに直接挿入し、PCと即同期させる関数 ──
 def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai):
-    df = st.session_state.app_df.copy()
-    new_data = {
-        '会社名': safe_str(company_str),
-        '車番': safe_str(shaban),
-        '入力番号': safe_str(input_no),
-        '詳細': safe_str(detail),
-        '備考': safe_str(remark),
-        '風体': safe_str(fuutai),
-    }
-    for col in df.columns:
-        if col not in new_data:
-            new_data[col] = ""
+    wb = openpyxl.load_workbook(FILE_PATH)
+    ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
+    
+    comp_row_idx = None
+    target_comp_code = -1
+    m_target = re.match(r'^(\d{1,2})[:：]', company_str.strip())
+    if m_target:
+        target_comp_code = int(m_target.group(1))
 
-    new_row_df = pd.DataFrame([new_data])
-    df = pd.concat([df, new_row_df], ignore_index=True)
+    insert_before_row = None
+    for r in range(1, ws.max_row + 1):
+        v = normalize_text(ws.cell(row=r, column=1).value)
+        if not v:
+            continue
+        if normalize_text(company_str) == v:
+            comp_row_idx = r
+            break
+        m = re.match(r'^(\d{1,2})[:：]', v)
+        if m and target_comp_code >= 0:
+            c_code = int(m.group(1))
+            if c_code > target_comp_code and insert_before_row is None:
+                insert_before_row = r
 
-    def get_comp_code(val):
-        m = re.match(r'^(\d{1,2})', safe_str(val))
-        return int(m.group(1)) if m else 999
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    df['_comp_num'] = df['会社名'].apply(get_comp_code)
-    df = df.sort_values(by=['_comp_num', '車番'], ascending=[True, True], kind='stable').drop(columns=['_comp_num']).reset_index(drop=True)
-    st.session_state.app_df = df
-
-    try:
-        wb = openpyxl.load_workbook(FILE_PATH)
-        ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
-        comp_found = False
-        norm_target = normalize_text(company_str)
-        for r in range(1, ws.max_row + 1):
-            v = normalize_text(ws.cell(row=r, column=1).value)
-            if v == norm_target:
-                comp_found = True
+    if comp_row_idx is not None:
+        insert_target = comp_row_idx + 1
+        while insert_target <= ws.max_row:
+            cell_v = str(ws.cell(row=insert_target, column=1).value or "").strip()
+            if (":" in cell_v or "：" in cell_v) and normalize_text(cell_v) != normalize_text(company_str):
                 break
+            insert_target += 1
         
-        if not comp_found:
-            r1 = ws.max_row + 1
-            ws.cell(row=r1, column=1, value=str(company_str))
-            r2 = r1 + 1
-            ws.cell(row=r2, column=1, value="")
-            ws.cell(row=r2, column=2, value=str(shaban))
-            ws.cell(row=r2, column=3, value=str(input_no))
-            ws.cell(row=r2, column=4, value=str(detail))
-            ws.cell(row=r2, column=5, value=str(remark))
-            ws.cell(row=r2, column=7, value=str(fuutai))
-        else:
-            r = ws.max_row + 1
-            ws.cell(row=r, column=1, value="")
-            ws.cell(row=r, column=2, value=str(shaban))
-            ws.cell(row=r, column=3, value=str(input_no))
-            ws.cell(row=r, column=4, value=str(detail))
-            ws.cell(row=r, column=5, value=str(remark))
-            ws.cell(row=r, column=7, value=str(fuutai))
-            
-        wb.save(FILE_PATH)
-    except Exception:
-        pass
+        ws.insert_rows(insert_target)
+        ws.cell(row=insert_target, column=1, value="")
+        ws.cell(row=insert_target, column=2, value=str(shaban))
+        ws.cell(row=insert_target, column=3, value=str(input_no))
+        ws.cell(row=insert_target, column=4, value=str(detail))
+        ws.cell(row=insert_target, column=5, value=str(remark))
+        ws.cell(row=insert_target, column=6, value="")
+        ws.cell(row=insert_target, column=7, value=str(fuutai))
+        ws.cell(row=insert_target, column=8, value=now_str)
+    else:
+        ins_r = insert_before_row if insert_before_row is not None else (ws.max_row + 1)
+        ws.insert_rows(ins_r, amount=2)
+        ws.cell(row=ins_r, column=1, value=str(company_str))
+        ws.cell(row=ins_r + 1, column=1, value="")
+        ws.cell(row=ins_r + 1, column=2, value=str(shaban))
+        ws.cell(row=ins_r + 1, column=3, value=str(input_no))
+        ws.cell(row=ins_r + 1, column=4, value=str(detail))
+        ws.cell(row=ins_r + 1, column=5, value=str(remark))
+        ws.cell(row=ins_r + 1, column=6, value="")
+        ws.cell(row=ins_r + 1, column=7, value=str(fuutai))
+        ws.cell(row=ins_r + 1, column=8, value=now_str)
+        
+    wb.save(FILE_PATH)
+    st.cache_data.clear() # キャッシュを消去してPCもスマホも即座に最新データをロード
 
+# ── Excelから直接行を完全消去する関数 ──
 def delete_vehicle_record(company_str, old_shaban, old_input_no):
-    df = st.session_state.app_df.copy()
+    wb = openpyxl.load_workbook(FILE_PATH)
+    ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
     norm_c = normalize_text(company_str)
     norm_s = normalize_text(old_shaban)
     norm_inp = normalize_text(old_input_no)
 
-    drop_indices = []
-    for idx, r in df.iterrows():
-        r_c = normalize_text(r.get('会社名', ''))
-        r_s = normalize_text(r.get('車番', ''))
-        r_inp = normalize_text(r.get('入力番号', ''))
-        if (norm_inp and r_inp == norm_inp) or (r_c == norm_c and (r_s == norm_s or (not norm_s and not r_s))):
-            drop_indices.append(idx)
+    current_comp = ""
+    rows_to_delete = []
+    for r in range(1, ws.max_row + 1):
+        c1 = normalize_text(ws.cell(row=r, column=1).value)
+        if ":" in c1:
+            current_comp = c1
+        c2 = normalize_text(ws.cell(row=r, column=2).value)
+        c3 = normalize_text(ws.cell(row=r, column=3).value)
+        if (norm_inp and c3 == norm_inp) or (current_comp == norm_c and (c2 == norm_s or (not norm_s and not c2))):
+            rows_to_delete.append(r)
+    
+    for r in reversed(rows_to_delete):
+        ws.delete_rows(r)
+    wb.save(FILE_PATH)
+    st.cache_data.clear()
 
-    if drop_indices:
-        df = df.drop(index=drop_indices).reset_index(drop=True)
-        st.session_state.app_df = df
-
-    try:
-        wb = openpyxl.load_workbook(FILE_PATH)
-        ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
-        current_comp = ""
-        rows_to_delete = []
-        for r in range(1, ws.max_row + 1):
-            c1 = normalize_text(ws.cell(row=r, column=1).value)
-            if ":" in c1:
-                current_comp = c1
-            c2 = normalize_text(ws.cell(row=r, column=2).value)
-            c3 = normalize_text(ws.cell(row=r, column=3).value)
-            if (norm_inp and c3 == norm_inp) or (current_comp == norm_c and (c2 == norm_s or (not norm_s and not c2))):
-                rows_to_delete.append(r)
-        
-        for r in reversed(rows_to_delete):
-            ws.delete_rows(r)
-        wb.save(FILE_PATH)
-    except Exception:
-        pass
-
+# ── Excelの既存行を直接更新する関数 ──
 def update_vehicle_record(old_company, old_shaban, old_input_no, new_comp, new_shaban, new_input_no, new_detail, new_remark, new_fuutai):
-    df = st.session_state.app_df.copy()
+    wb = openpyxl.load_workbook(FILE_PATH)
+    ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
     norm_c = normalize_text(old_company)
     norm_s = normalize_text(old_shaban)
     norm_inp = normalize_text(old_input_no)
 
-    for idx, r in df.iterrows():
-        r_c = normalize_text(r.get('会社名', ''))
-        r_s = normalize_text(r.get('車番', ''))
-        r_inp = normalize_text(r.get('入力番号', ''))
-        
-        if (norm_inp and r_inp == norm_inp) or (r_c == norm_c and (r_s == norm_s or (not norm_s and not r_s))):
-            df.at[idx, '会社名'] = safe_str(new_comp)
-            df.at[idx, '車番'] = safe_str(new_shaban)
-            df.at[idx, '入力番号'] = safe_str(new_input_no)
-            df.at[idx, '詳細'] = safe_str(new_detail)
-            df.at[idx, '備考'] = safe_str(new_remark)
-            df.at[idx, '風体'] = safe_str(new_fuutai)
+    current_comp = ""
+    for r in range(1, ws.max_row + 1):
+        c1 = normalize_text(ws.cell(row=r, column=1).value)
+        if ":" in c1:
+            current_comp = c1
+        c2 = normalize_text(ws.cell(row=r, column=2).value)
+        c3 = normalize_text(ws.cell(row=r, column=3).value)
+
+        if (norm_inp and c3 == norm_inp) or (current_comp == norm_c and (c2 == norm_s or (not norm_s and not c2))):
+            ws.cell(row=r, column=2, value=str(new_shaban))
+            ws.cell(row=r, column=3, value=str(new_input_no))
+            ws.cell(row=r, column=4, value=str(new_detail))
+            ws.cell(row=r, column=5, value=str(new_remark))
+            ws.cell(row=r, column=7, value=str(new_fuutai))
             break
-            
-    st.session_state.app_df = df
-
-    try:
-        wb = openpyxl.load_workbook(FILE_PATH)
-        ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
-        current_comp = ""
-        for r in range(1, ws.max_row + 1):
-            c1 = normalize_text(ws.cell(row=r, column=1).value)
-            if ":" in c1:
-                current_comp = c1
-            c2 = normalize_text(ws.cell(row=r, column=2).value)
-            c3 = normalize_text(ws.cell(row=r, column=3).value)
-
-            if (norm_inp and c3 == norm_inp) or (current_comp == norm_c and (c2 == norm_s or (not norm_s and not c2))):
-                ws.cell(row=r, column=2, value=str(new_shaban))
-                ws.cell(row=r, column=3, value=str(new_input_no))
-                ws.cell(row=r, column=4, value=str(new_detail))
-                ws.cell(row=r, column=5, value=str(new_remark))
-                ws.cell(row=r, column=7, value=str(new_fuutai))
-                break
-        wb.save(FILE_PATH)
-    except Exception:
-        pass
+    wb.save(FILE_PATH)
+    st.cache_data.clear()
 
 def generate_upload_csv(df_source):
     rows = []
@@ -376,14 +347,14 @@ def generate_upload_csv(df_source):
     csv_df = pd.DataFrame(rows, columns=['Vehicle ID', 'Max weight', 'Weight'])
     return csv_df.to_csv(index=False, encoding='utf-8-sig')
 
-df_base = st.session_state.app_df
+# PC・スマホ共通の実データをロード
+df_base = load_shared_excel_data()
 
 # ── ヘッダー ──
 st.markdown('<div class="app-main-title">🚗 車両管理＆検索</div>', unsafe_allow_html=True)
 
 col_home, col_dl = st.columns(2)
 with col_home:
-    # ホームボタンを押したら即座に初期化
     st.button("🏠 ホーム", on_click=reset_to_home, use_container_width=True)
 with col_dl:
     csv_data = generate_upload_csv(df_base)
@@ -401,7 +372,6 @@ tab1, tab2, tab3 = st.tabs(["🔍 検索", "➕ 新規登録", "✏️ 編集・
 with tab1:
     st.markdown("##### 🔍 車番を入力（例: 8, 14, 1234 など）")
 
-    # 入力枠とクリアボタンを高さピッタリ一直線に配置
     col_inp, col_clr = st.columns([3.2, 1.2])
     with col_inp:
         search_val = st.text_input(
@@ -412,7 +382,6 @@ with tab1:
         )
             
     with col_clr:
-        # クリアボタンを押したら即座に入力を消去
         st.button("クリア", on_click=reset_to_home, use_container_width=True)
 
     current_search = search_val.strip()
@@ -518,7 +487,7 @@ with tab2:
             if not new_comp_code.isdigit() or len(new_comp_code) != 2:
                 st.warning("⚠️ 会社番号は半角数字2桁（00〜99）で入力してください。")
             elif int(new_comp_code) in used_numbers:
-                st.error(f"⚠️ 番号「{new_comp_code}」は既に使われています！別の空き番号を指定してください。")
+                st.error(f"⚠️️ 番号「{new_comp_code}」は既に使われています！別の空き番号を指定してください。")
             else:
                 st.info(f"💡 番号「{new_comp_code}」は空いています。利用可能です！")
 
@@ -594,7 +563,7 @@ with tab2:
                         )
                         st.session_state.scanned_shaban = ""
                         st.session_state.scanned_detail = ""
-                        st.session_state.action_notice = f"🎉 会社「{selected_target_comp}」に 車番「{new_shaban}」を追加しました！チャート表に反映されています。"
+                        st.session_state.action_notice = f"🎉 会社「{selected_target_comp}」に 車番「{new_shaban}」を追加しました！PC・スマホ共に反映されています。"
                         st.toast("✅ 登録が完了しました！")
                         st.rerun()
                     except Exception as ex:
@@ -616,7 +585,7 @@ with tab3:
             empty_shaban_count += 1
 
     if empty_shaban_count > 0:
-        if st.button(f"⚠️️ 車番が未入力の車両（{empty_shaban_count}台）を抽出する", use_container_width=True):
+        if st.button(f"⚠️ 車番が未入力の車両（{empty_shaban_count}台）を抽出する", use_container_width=True):
             st.session_state.edit_search_keyword = "車番未設定"
 
     edit_search_val = st.text_input(

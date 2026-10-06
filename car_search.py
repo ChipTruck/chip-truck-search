@@ -70,26 +70,27 @@ div[data-testid="stHorizontalBlock"] button, div[data-testid="stHorizontalBlock"
     justify-content: center !important;
 }
 
+/* ── 車両カードのデザイン（風体特大・視認性UP） ── */
 .vehicle-detail-card {
-    background-color: #f8f9fa;
+    background-color: #ffffff;
     border: 2px solid #1e88e5;
-    border-radius: 12px;
+    border-radius: 14px;
     padding: 16px;
     margin-top: 15px;
     margin-bottom: 20px;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
 }
 .card-title {
-    font-size: 1.35rem;
+    font-size: 1.4rem;
     font-weight: bold;
     color: #1e88e5;
-    margin-bottom: 8px;
-    border-bottom: 2px solid #e0e0e0;
-    padding-bottom: 4px;
+    margin-bottom: 10px;
+    border-bottom: 2px solid #e3f2fd;
+    padding-bottom: 6px;
 }
 .card-row {
-    font-size: 1.05rem;
-    margin: 6px 0;
+    font-size: 1.1rem;
+    margin: 8px 0;
     color: #222;
 }
 .card-label {
@@ -97,6 +98,28 @@ div[data-testid="stHorizontalBlock"] button, div[data-testid="stHorizontalBlock"
     color: #555;
     display: inline-block;
     width: 85px;
+}
+/* 超特大の風体ハイライト表示ボックス */
+.fuutai-box {
+    background: #eef7ff;
+    border: 2px solid #1e88e5;
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.fuutai-label {
+    font-size: 1.25rem;
+    font-weight: bold;
+    color: #1565c0;
+}
+.fuutai-val {
+    font-size: 2.1rem;
+    font-weight: 900;
+    color: #0d47a1;
+    letter-spacing: 1px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -435,16 +458,21 @@ with tab1:
             c_dt = target_row.get('詳細', '-')
             c_rm = target_row.get('備考', '-')
             c_ft = target_row.get('風体', '-')
-            card_html = (
-                '<div class="vehicle-detail-card">'
-                f'<div class="card-title">🚗 車番: {c_sh}</div>'
-                f'<div class="card-row"><span class="card-label">会社名:</span> <b>{c_cp}</b></div>'
-                f'<div class="card-row"><span class="card-label">入力番号:</span> <b style="color: #d32f2f; font-size: 1.4rem;">{c_in}</b></div>'
-                f'<div class="card-row"><span class="card-label">詳細:</span> {c_dt}</div>'
-                f'<div class="card-row"><span class="card-label">備考:</span> {c_rm}</div>'
-                f'<div class="card-row"><span class="card-label">風体:</span> {c_ft}</div>'
-                '</div>'
-            )
+            
+            # 風体と入力番号を特大表示にした現場最適化カード
+            card_html = f"""
+            <div class="vehicle-detail-card">
+                <div class="card-title">🚗 車番: {c_sh}</div>
+                <div class="card-row"><span class="card-label">会社名:</span> <b>{c_cp}</b></div>
+                <div class="card-row"><span class="card-label">入力番号:</span> <b style="color: #d32f2f; font-size: 1.55rem; letter-spacing: 1px;">{c_in}</b></div>
+                <div class="card-row"><span class="card-label">詳細:</span> {c_dt}</div>
+                <div class="card-row"><span class="card-label">備考:</span> <b>{c_rm}</b></div>
+                <div class="fuutai-box">
+                    <span class="fuutai-label">⚖️ 風体</span>
+                    <span class="fuutai-val">{c_ft}</span>
+                </div>
+            </div>
+            """
             st.markdown(card_html, unsafe_allow_html=True)
 
 # ── 【タブ2】 新規登録 ──
@@ -521,7 +549,7 @@ with tab2:
                 nums = re.findall(r'\b\d{1,4}\b', extracted_text)
                 if nums:
                     st.session_state.scanned_shaban = nums[-1]
-                    st.session_state.scanned_detail = extracted_text.strip().replace(chr(10), " ")
+                    st.session_state.scanned_detail = extracted_text.strip().replace("\n", " ")
                     st.success(f"🔍 読み取り成功！ 車番「{st.session_state.scanned_shaban}」を下に入力しました。")
                 else:
                     st.info("💡 画像を受け付けました。下のカードで必要項目を確認・入力してください。")
@@ -540,4 +568,17 @@ with tab2:
                 value=st.session_state.get("scanned_shaban", "")
             )
             
-            calc_input_no = f"{comp_2digit_prefix}{new_shaban}"
+            calc_input_no = f"{comp_2digit_prefix}{new_shaban}" if comp_2digit_prefix and new_shaban else ""
+            new_input_no = st.text_input("入力番号（会社2桁＋車番）", value=calc_input_no)
+            
+            new_detail = st.text_input(
+                "詳細（例: 岐阜302 も 9418）", 
+                value=st.session_state.get("scanned_detail", "")
+            )
+            new_remark = st.text_input("備考（例: 4t車、大型など）")
+            new_fuutai = st.text_input("風体")
+
+            submitted = st.form_submit_button("💾 この内容で登録を保存", type="primary")
+            if submitted:
+                if not new_shaban:
+                    st.error("⚠️ 車番

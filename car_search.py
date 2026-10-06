@@ -235,6 +235,16 @@ def reset_to_home():
     st.session_state.action_notice = ""
     st.session_state.form_reset_counter += 1
 
+# ── Excelの列の並び（読み込み処理と同じ：A列から 車番, 入力番号, 詳細, 備考, 削除対象, 風体, 登録日時, 削除フラグ）──
+COL_SHABAN = 1
+COL_INPUT = 2
+COL_DETAIL = 3
+COL_REMARK = 4
+COL_DEL_TARGET = 5
+COL_FUUTAI = 6
+COL_REGDATE = 7
+COL_DEL_FLAG = 8
+
 # ── Excel操作の補助（結合セル対策） ──
 def _is_company_header(text):
     t = safe_str(text)
@@ -300,13 +310,13 @@ def _find_vehicle_row(ws, company_str, shaban, input_no):
         if _is_company_header(c1):
             current_comp = normalize_text(c1)
             continue
-        vals = [normalize_text(ws.cell(row=r, column=c).value) for c in range(2, 6)]
+        vals = [normalize_text(ws.cell(row=r, column=c).value) for c in range(COL_SHABAN, COL_REMARK + 1)]
         if not any(vals):
             continue
-        c2, c3 = vals[0], vals[1]
-        if norm_inp and c3 == norm_inp:
+        c_sh, c_inp = vals[0], vals[1]
+        if norm_inp and c_inp == norm_inp:
             return r
-        if current_comp == norm_c and c2 == norm_s:
+        if current_comp == norm_c and c_sh == norm_s:
             return r
     return None
 
@@ -352,14 +362,13 @@ def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai)
         _set_cell(ws, ins_r, 1, str(company_str))
         data_row = ins_r + 1
 
-    _set_cell(ws, data_row, 1, "")
-    _set_cell(ws, data_row, 2, str(shaban))
-    _set_cell(ws, data_row, 3, str(input_no))
-    _set_cell(ws, data_row, 4, str(detail))
-    _set_cell(ws, data_row, 5, str(remark))
-    _set_cell(ws, data_row, 6, "")
-    _set_cell(ws, data_row, 7, str(fuutai))
-    _set_cell(ws, data_row, 8, now_str)
+    _set_cell(ws, data_row, COL_SHABAN, str(shaban))
+    _set_cell(ws, data_row, COL_INPUT, str(input_no))
+    _set_cell(ws, data_row, COL_DETAIL, str(detail))
+    _set_cell(ws, data_row, COL_REMARK, str(remark))
+    _set_cell(ws, data_row, COL_DEL_TARGET, "")
+    _set_cell(ws, data_row, COL_FUUTAI, str(fuutai))
+    _set_cell(ws, data_row, COL_REGDATE, now_str)
         
     wb.save(FILE_PATH)
     st.cache_data.clear()
@@ -384,14 +393,52 @@ def update_vehicle_record(old_company, old_shaban, old_input_no, new_comp, new_s
     if r is None:
         raise ValueError("更新する車両がExcel内に見つかりませんでした。")
 
-    _set_cell(ws, r, 2, str(new_shaban))
-    _set_cell(ws, r, 3, str(new_input_no))
-    _set_cell(ws, r, 4, str(new_detail))
-    _set_cell(ws, r, 5, str(new_remark))
-    _set_cell(ws, r, 7, str(new_fuutai))
+    _set_cell(ws, r, COL_SHABAN, str(new_shaban))
+    _set_cell(ws, r, COL_INPUT, str(new_input_no))
+    _set_cell(ws, r, COL_DETAIL, str(new_detail))
+    _set_cell(ws, r, COL_REMARK, str(new_remark))
+    _set_cell(ws, r, COL_FUUTAI, str(new_fuutai))
 
     wb.save(FILE_PATH)
     st.cache_data.clear()
+
+def _is_shifted_row(ws, r):
+    """以前のバージョンで新規登録した、1列右にずれて保存された行かどうか
+    （A列が空・B列に値あり・H列に登録日時が入っている行）"""
+    a = safe_str(ws.cell(row=r, column=1).value)
+    b = safe_str(ws.cell(row=r, column=2).value)
+    h = safe_str(ws.cell(row=r, column=8).value)
+    return (not a) and bool(b) and bool(re.match(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}', h))
+
+@st.cache_data(ttl=5)
+def count_shifted_rows():
+    if not os.path.exists(FILE_PATH):
+        return 0
+    wb = openpyxl.load_workbook(FILE_PATH)
+    ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
+    return sum(1 for r in range(1, ws.max_row + 1) if _is_shifted_row(ws, r))
+
+def repair_shifted_rows():
+    wb = openpyxl.load_workbook(FILE_PATH)
+    ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
+    fixed = 0
+    for r in range(1, ws.max_row + 1):
+        if not _is_shifted_row(ws, r):
+            continue
+        # ずれた並び：B=車番, C=入力番号, D=詳細, E=備考, F=空, G=風体, H=登録日時
+        old = [ws.cell(row=r, column=c).value for c in range(1, 9)]
+        _set_cell(ws, r, COL_SHABAN, old[1])
+        _set_cell(ws, r, COL_INPUT, old[2])
+        _set_cell(ws, r, COL_DETAIL, old[3])
+        _set_cell(ws, r, COL_REMARK, old[4])
+        _set_cell(ws, r, COL_DEL_TARGET, "")
+        _set_cell(ws, r, COL_FUUTAI, old[6])
+        _set_cell(ws, r, COL_REGDATE, old[7])
+        _set_cell(ws, r, COL_DEL_FLAG, None)
+        fixed += 1
+    wb.save(FILE_PATH)
+    st.cache_data.clear()
+    return fixed
 
 def generate_upload_csv(df_source):
     rows = []
@@ -677,6 +724,17 @@ with tab3:
     if st.session_state.action_notice:
         st.success(st.session_state.action_notice)
         st.session_state.action_notice = ""
+
+    shifted_count = count_shifted_rows()
+    if shifted_count > 0:
+        st.warning(f"以前の新規登録で、項目が1列ずれて保存された車両が {shifted_count} 台あります。")
+        if st.button(f"🔧 ずれた {shifted_count} 台を正しい位置に直す", type="primary", use_container_width=True):
+            try:
+                n = repair_shifted_rows()
+                st.session_state.action_notice = f"{n} 台の車両データを正しい位置に直しました！"
+                st.rerun()
+            except Exception as ex:
+                st.error(f"修正中にエラーが発生しました: {ex}")
 
     st.write("車番、会社名、入力番号、詳細（ナンバー）のいずれかで検索できます。")
 

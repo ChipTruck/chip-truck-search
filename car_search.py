@@ -13,16 +13,33 @@ st.set_page_config(
     layout="wide"
 )
 
-# ── スマホでも崩れない3列キープCSS ──
+# ── スマホでも綺麗に収まるレイアウト＆強制3列CSS ──
 st.markdown("""
     <style>
-    h1 {
-        font-size: 1.45rem !important;
-        word-break: break-all;
+    /* タイトルが変に改行されず1行で綺麗に収まるスタイル */
+    .app-main-title {
+        font-size: 1.6rem !important;
+        font-weight: bold !important;
+        color: #1e88e5;
+        margin-top: -10px;
+        margin-bottom: 8px;
+        white-space: nowrap !important;
     }
+    
     [data-testid="stDataFrame"] {
         width: 100% !important;
     }
+    
+    /* 検索ボックスを大きくして押しやすくする */
+    div[data-testid="stTextInput"] input {
+        font-size: 1.35rem !important;
+        height: 50px !important;
+        font-weight: bold !important;
+        border: 2px solid #1e88e5 !important;
+        border-radius: 8px !important;
+    }
+    
+    /* 横並びカラムのスマホ崩れ防止 */
     div[data-testid="stHorizontalBlock"] {
         display: flex !important;
         flex-direction: row !important;
@@ -35,7 +52,7 @@ st.markdown("""
     }
     div[data-testid="stHorizontalBlock"] button, div[data-testid="stHorizontalBlock"] a {
         width: 100% !important;
-        height: 48px !important;
+        height: 46px !important;
         font-size: 1.05rem !important;
         font-weight: bold !important;
         border-radius: 8px !important;
@@ -44,6 +61,8 @@ st.markdown("""
         align-items: center !important;
         justify-content: center !important;
     }
+    
+    /* カードスタイル */
     .vehicle-detail-card {
         background-color: #f8f9fa;
         border: 2px solid #1e88e5;
@@ -73,12 +92,25 @@ st.markdown("""
         width: 85px;
     }
     </style>
+
+    <!-- スマホでタップした瞬間に数字キーボードを立ち上げるスクリプト -->
+    <script>
+    const setNumericMode = () => {
+        const inputs = window.parent.document.querySelectorAll('input[type="text"]');
+        inputs.forEach(inp => {
+            if (inp.getAttribute('aria-label') && inp.getAttribute('aria-label').includes('車番')) {
+                inp.setAttribute('inputmode', 'numeric');
+                inp.setAttribute('pattern', '[0-9]*');
+            }
+        });
+    };
+    setInterval(setNumericMode, 800);
+    </script>
 """, unsafe_allow_html=True)
 
 FILE_PATH = "新_登録車両資料_連動版.xlsx"
 SHEET_NAME = "新_登録車両資料"
 
-# 安全な文字列変換関数（floatやNaN、Noneを完全排除）
 def safe_str(val):
     if pd.isna(val) or val is None:
         return ""
@@ -87,7 +119,6 @@ def safe_str(val):
         return ""
     return s
 
-# 文字列の表記ゆれ統一
 def normalize_text(text):
     s = safe_str(text)
     if not s:
@@ -95,7 +126,6 @@ def normalize_text(text):
     t = s.replace("：", ":").replace(" ", "").replace(" ", "")
     return t.strip()
 
-# データの初期ロード処理
 def load_raw_data():
     if not os.path.exists(FILE_PATH):
         return pd.DataFrame(columns=['会社名', '車番', '入力番号', '詳細', '備考', '風体'])
@@ -160,13 +190,11 @@ def load_raw_data():
         
     return df
 
-# アプリ全体で共有するデータ
+# セッション状態
 if "app_df" not in st.session_state:
     st.session_state.app_df = load_raw_data()
 if "search_box_main" not in st.session_state:
     st.session_state.search_box_main = ""
-if "pending_key" not in st.session_state:
-    st.session_state.pending_key = None
 if "active_card_key" not in st.session_state:
     st.session_state.active_card_key = None
 if "scanned_shaban" not in st.session_state:
@@ -178,23 +206,8 @@ if "action_notice" not in st.session_state:
 if "edit_search_keyword" not in st.session_state:
     st.session_state.edit_search_keyword = ""
 
-# テンキー処理
-if st.session_state.pending_key is not None:
-    if st.session_state.pending_key == "CLEAR":
-        st.session_state.search_box_main = ""
-    else:
-        st.session_state.search_box_main = str(st.session_state.get("search_box_main", "")) + str(st.session_state.pending_key)
-    st.session_state.pending_key = None
-    st.session_state.active_card_key = None
-
-def on_num_click(val):
-    st.session_state.pending_key = val
-    st.rerun()
-
-# データフレームへ会社番号順に新規車両を挿入・ソート
 def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai):
     df = st.session_state.app_df.copy()
-    
     new_data = {
         '会社名': safe_str(company_str),
         '車番': safe_str(shaban),
@@ -221,7 +234,6 @@ def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai)
     try:
         wb = openpyxl.load_workbook(FILE_PATH)
         ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
-        
         comp_found = False
         norm_target = normalize_text(company_str)
         for r in range(1, ws.max_row + 1):
@@ -253,7 +265,6 @@ def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai)
     except Exception:
         pass
 
-# 車両の完全削除
 def delete_vehicle_record(company_str, old_shaban, old_input_no):
     df = st.session_state.app_df.copy()
     norm_c = normalize_text(company_str)
@@ -275,7 +286,6 @@ def delete_vehicle_record(company_str, old_shaban, old_input_no):
     try:
         wb = openpyxl.load_workbook(FILE_PATH)
         ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
-        
         current_comp = ""
         rows_to_delete = []
         for r in range(1, ws.max_row + 1):
@@ -289,12 +299,10 @@ def delete_vehicle_record(company_str, old_shaban, old_input_no):
         
         for r in reversed(rows_to_delete):
             ws.delete_rows(r)
-            
         wb.save(FILE_PATH)
     except Exception:
         pass
 
-# 車両情報の更新
 def update_vehicle_record(old_company, old_shaban, old_input_no, new_comp, new_shaban, new_input_no, new_detail, new_remark, new_fuutai):
     df = st.session_state.app_df.copy()
     norm_c = normalize_text(old_company)
@@ -320,7 +328,6 @@ def update_vehicle_record(old_company, old_shaban, old_input_no, new_comp, new_s
     try:
         wb = openpyxl.load_workbook(FILE_PATH)
         ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
-        
         current_comp = ""
         for r in range(1, ws.max_row + 1):
             c1 = normalize_text(ws.cell(row=r, column=1).value)
@@ -332,7 +339,7 @@ def update_vehicle_record(old_company, old_shaban, old_input_no, new_comp, new_s
             if (norm_inp and c3 == norm_inp) or (current_comp == norm_c and (c2 == norm_s or (not norm_s and not c2))):
                 ws.cell(row=r, column=2, value=str(new_shaban))
                 ws.cell(row=r, column=3, value=str(new_input_no))
-                ws.cell(row=r, column=4, value=str(detail))
+                ws.cell(row=r, column=4, value=str(new_detail))
                 ws.cell(row=r, column=5, value=str(new_remark))
                 ws.cell(row=r, column=7, value=str(new_fuutai))
                 break
@@ -340,7 +347,6 @@ def update_vehicle_record(old_company, old_shaban, old_input_no, new_comp, new_s
     except Exception:
         pass
 
-# Upload.csv 生成関数
 def generate_upload_csv(df_source):
     rows = []
     for _, r in df_source.iterrows():
@@ -361,12 +367,11 @@ def generate_upload_csv(df_source):
 
 df_base = st.session_state.app_df
 
-# ── ヘッダー：タイトル ＆ ホーム ＆ Upload.csvダウンロードボタン ──
-col_title, col_home, col_dl = st.columns([2.0, 0.9, 1.1])
-with col_title:
-    st.title("🚗 車両管理＆検索")
+# ── 【ヘッダー改善】タイトルを1行で大きく、ボタンはその下に2列並び ──
+st.markdown('<div class="app-main-title">🚗 車両管理＆検索</div>', unsafe_allow_html=True)
+
+col_home, col_dl = st.columns(2)
 with col_home:
-    st.write("")
     if st.button("🏠 ホーム", use_container_width=True):
         st.session_state.search_box_main = ""
         st.session_state.active_card_key = None
@@ -375,7 +380,6 @@ with col_home:
         st.session_state.action_notice = ""
         st.rerun()
 with col_dl:
-    st.write("")
     csv_data = generate_upload_csv(df_base)
     st.download_button(
         label="📥 Upload.csv",
@@ -389,47 +393,32 @@ tab1, tab2, tab3 = st.tabs(["🔍 検索", "➕ 新規登録", "✏️ 編集・
 
 # ── 【タブ1】 検索・閲覧 ──
 with tab1:
-    st.write("車番の数字で素早く検索できます。")
+    st.write("枠をタップすると**スマホの数字キーボード**が立ち上がります。")
 
-    st.text_input(
-        "🔍 車番を入力（例: 1, 8, 14 など）", 
-        key="search_box_main"
-    )
-
-    with st.expander("🔢 テンキー入力を開く", expanded=True):
-        r1c1, r1c2, r1c3 = st.columns(3)
-        if r1c1.button("1", use_container_width=True): on_num_click("1")
-        if r1c2.button("2", use_container_width=True): on_num_click("2")
-        if r1c3.button("3", use_container_width=True): on_num_click("3")
-
-        r2c1, r2c2, r2c3 = st.columns(3)
-        if r2c1.button("4", use_container_width=True): on_num_click("4")
-        if r2c2.button("5", use_container_width=True): on_num_click("5")
-        if r2c3.button("6", use_container_width=True): on_num_click("6")
-
-        r3c1, r3c2, r3c3 = st.columns(3)
-        if r3c1.button("7", use_container_width=True): on_num_click("7")
-        if r3c2.button("8", use_container_width=True): on_num_click("8")
-        if r3c3.button("9", use_container_width=True): on_num_click("9")
-
-        r4c1, r4c2, r4c3 = st.columns(3)
-        if r4c1.button("0", use_container_width=True): on_num_click("0")
-        if r4c2.button("🎤", use_container_width=True): 
-            st.toast("キーボードのマイクから音声入力できます")
-        if r4c3.button("クリア", use_container_width=True): on_num_click("CLEAR")
-
+    col_inp, col_clr = st.columns([3, 1])
+    with col_inp:
+        search_val = st.text_input(
+            "🔍 車番を入力（例: 8, 14, 1234 など）", 
+            value=st.session_state.search_box_main,
+            key="search_input_widget"
+        )
+        if search_val != st.session_state.search_box_main:
+            st.session_state.search_box_main = search_val
+            st.session_state.active_card_key = None
+    with col_clr:
         st.write("")
-        if st.button("🔍 番号決定（検索実行）", use_container_width=True, type="primary"):
+        if st.button("クリア", use_container_width=True):
+            st.session_state.search_box_main = ""
             st.session_state.active_card_key = None
             st.rerun()
 
-    search_val = st.session_state.get("search_box_main", "").strip()
+    current_search = st.session_state.search_box_main.strip()
     filtered_df = df_base.copy()
-    is_searched = bool(search_val)
+    is_searched = bool(current_search)
 
     if is_searched:
         if '車番' in filtered_df.columns:
-            mask = filtered_df['車番'].astype(str).str.contains(search_val, case=False, na=False)
+            mask = filtered_df['車番'].astype(str).str.contains(current_search, case=False, na=False)
             filtered_df = filtered_df[mask]
 
         try:
@@ -448,14 +437,12 @@ with tab1:
         table_df['会社名'] = table_df['会社名'].mask(table_df['会社名'] == table_df['会社名'].shift(), '')
 
     if is_searched:
-        st.write(f"検索結果: **{len(filtered_df)}** 行 （検索キー: {search_val}）")
+        st.write(f"検索結果: **{len(filtered_df)}** 行 （検索キー: {current_search}）")
     else:
         st.write(f"全車両一覧: **{len(filtered_df)}** 行")
 
-    # ── ① チャート表 ──
     st.dataframe(table_df, use_container_width=True, hide_index=True)
 
-    # ── ② 検索結果が出ている時：該当車両を押すとカード表示 ──
     if is_searched and len(filtered_df) > 0:
         st.write("---")
         st.markdown("##### 👆 車両を押すとカードで詳細が出ます")
@@ -536,7 +523,6 @@ with tab2:
             selected_target_comp = f"{new_comp_code}：{new_comp_raw_name.strip()}"
             comp_2digit_prefix = new_comp_code
 
-    # カメラ撮影 / 写真スキャン
     st.write("---")
     with st.expander("📷 カメラ撮影 / 画像アップロードで自動入力する", expanded=False):
         upload_choice = st.radio("入力方法", ["カメラで撮影", "写真をアップロード"], horizontal=True)
@@ -566,7 +552,6 @@ with tab2:
                     st.info("💡 画像を受け付けました。下のカードで必要項目を確認・入力してください。")
                 st.rerun()
 
-    # 新規車両カード入力
     if selected_target_comp:
         st.markdown(f"""
         <div class="vehicle-detail-card">

@@ -211,7 +211,7 @@ if "action_notice" not in st.session_state:
 if "edit_search_keyword" not in st.session_state:
     st.session_state.edit_search_keyword = ""
 
-# 検索欄と表示状態を完全にリセットする関数
+# 検索欄と表示状態を完全にリセットする関数（コールバック）
 def reset_to_home():
     st.session_state["search_input_widget"] = ""
     st.session_state["active_card_key"] = None
@@ -383,7 +383,7 @@ st.markdown('<div class="app-main-title">🚗 車両管理＆検索</div>', unsa
 
 col_home, col_dl = st.columns(2)
 with col_home:
-    # ホームボタンを押したら強制初期化
+    # ホームボタンを押したら即座に初期化
     st.button("🏠 ホーム", on_click=reset_to_home, use_container_width=True)
 with col_dl:
     csv_data = generate_upload_csv(df_base)
@@ -616,7 +616,7 @@ with tab3:
             empty_shaban_count += 1
 
     if empty_shaban_count > 0:
-        if st.button(f"⚠️ 車番が未入力の車両（{empty_shaban_count}台）を抽出する", use_container_width=True):
+        if st.button(f"⚠️️ 車番が未入力の車両（{empty_shaban_count}台）を抽出する", use_container_width=True):
             st.session_state.edit_search_keyword = "車番未設定"
 
     edit_search_val = st.text_input(

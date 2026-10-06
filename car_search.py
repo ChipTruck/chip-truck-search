@@ -347,19 +347,18 @@ tab1, tab2, tab3 = st.tabs(["🔍 検索", "➕ 新規登録", "✏️ 編集・
 with tab1:
     st.markdown("##### 🔍 車番を入力（タップで数字テンキー起動）")
 
-    # iPhoneで確実に数字テンキーが開き、セキュリティで弾かれないネイティブフォーム
-    html_search_form = f"""
+    html_search_form = """
     <!DOCTYPE html>
     <html>
     <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        body {{
+        body {
             margin: 0;
             padding: 0;
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-        }}
-        .input-box {{
+        }
+        .input-box {
             width: 100%;
             height: 48px;
             font-size: 1.4rem;
@@ -370,200 +369,6 @@ with tab1:
             box-sizing: border-box;
             outline: none;
             margin-bottom: 8px;
-        }}
-        .btn-group {{
+        }
+        .btn-group {
             display: flex;
-            gap: 8px;
-            width: 100%;
-        }}
-        .btn-submit {{
-            flex: 1;
-            height: 46px;
-            background-color: #1e88e5;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 1.05rem;
-            font-weight: bold;
-            cursor: pointer;
-        }}
-        .btn-reset {{
-            flex: 1;
-            height: 46px;
-            background-color: #f1f3f4;
-            color: #333;
-            border: 1px solid #ccc;
-            border-radius: 8px;
-            font-size: 1.05rem;
-            font-weight: bold;
-            cursor: pointer;
-            text-decoration: none;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }}
-    </style>
-    </head>
-    <body>
-        <form method="GET" target="_top">
-            <input 
-                class="input-box"
-                type="tel" 
-                name="shaban"
-                inputmode="numeric" 
-                pattern="[0-9]*" 
-                placeholder="車番を入力 (例: 1351)" 
-                value="{query_shaban}"
-            />
-            <div class="btn-group">
-                <button type="submit" class="btn-submit">🔍 検索実行</button>
-                <a href="?" target="_top" class="btn-reset">✕ クリア</a>
-            </div>
-        </form>
-    </body>
-    </html>
-    """
-    components.html(html_search_form, height=115)
-
-    current_search = query_shaban.strip()
-    filtered_df = df_base.copy()
-    is_searched = bool(current_search)
-
-    if is_searched:
-        if '車番' in filtered_df.columns:
-            mask = filtered_df['車番'].astype(str).str.contains(current_search, case=False, na=False)
-            filtered_df = filtered_df[mask]
-
-        try:
-            if '車番' in filtered_df.columns:
-                filtered_df['_sort_num'] = pd.to_numeric(filtered_df['車番'].str.extract(r'(\d+)', expand=False), errors='coerce')
-                filtered_df = filtered_df.sort_values(by='_sort_num', ascending=True, na_position='last')
-                filtered_df = filtered_df.drop(columns=['_sort_num'])
-        except Exception:
-            pass
-
-    display_cols = [c for c in ['会社名', '車番', '入力番号', '詳細', '備考', '風体'] if c in filtered_df.columns]
-    display_df = filtered_df[display_cols].copy()
-
-    table_df = display_df.copy()
-    if '会社名' in table_df.columns:
-        table_df['会社名'] = table_df['会社名'].mask(table_df['会社名'] == table_df['会社名'].shift(), '')
-
-    if is_searched:
-        st.write(f"検索結果: **{len(filtered_df)}** 行 （検索キー: {current_search}）")
-    else:
-        st.write(f"全車両一覧: **{len(filtered_df)}** 行")
-
-    st.dataframe(table_df, use_container_width=True, hide_index=True)
-
-    if is_searched and len(filtered_df) > 0:
-        st.write("---")
-        st.markdown("##### 👆 車両を押すとカードで詳細が出ます")
-        
-        cols = st.columns(2)
-        for idx, (_, row) in enumerate(filtered_df.iterrows()):
-            shaban_txt = row.get('車番', '-')
-            comp_txt = row.get('会社名', '-')
-            btn_label = f"🚗 {shaban_txt} （{comp_txt}）"
-            
-            if cols[idx % 2].button(btn_label, key=f"car_btn_{idx}", use_container_width=True):
-                st.session_state.active_card_key = idx
-                st.rerun()
-
-        current_active = st.session_state.get("active_card_key", None)
-        if current_active is not None and current_active < len(filtered_df):
-            target_row = filtered_df.iloc[current_active]
-            card_html = f"""
-            <div class="vehicle-detail-card">
-                <div class="card-title">🚗 車番: {target_row.get('車番', '-')}</div>
-                <div class="card-row"><span class="card-label">会社名:</span> <b>{target_row.get('会社名', '-')}</b></div>
-                <div class="card-row"><span class="card-label">入力番号:</span> <b style="color: #d32f2f; font-size: 1.4rem;">{target_row.get('入力番号', '-')}</b></div>
-                <div class="card-row"><span class="card-label">詳細:</span> {target_row.get('詳細', '-')}</div>
-                <div class="card-row"><span class="card-label">備考:</span> {target_row.get('備考', '-')}</div>
-                <div class="card-row"><span class="card-label">風体:</span> {target_row.get('風体', '-')}</div>
-            </div>
-            """
-            st.markdown(card_html, unsafe_allow_html=True)
-
-# ── 【タブ2】 新規登録 ──
-with tab2:
-    st.subheader("➕ 新規車両の登録")
-
-    if st.session_state.action_notice:
-        st.success(st.session_state.action_notice)
-        st.session_state.action_notice = ""
-    
-    existing_companies = [c for c in df_base['会社名'].dropna().unique().tolist() if safe_str(c)]
-    used_numbers = set()
-    for c in existing_companies:
-        m = re.match(r'^(\d{1,2})[:：]', str(c).strip())
-        if m:
-            used_numbers.add(int(m.group(1)))
-    
-    next_avail_num = 0
-    while next_avail_num in used_numbers and next_avail_num < 100:
-        next_avail_num += 1
-    default_2digit = f"{next_avail_num:02d}"
-
-    comp_mode = st.radio("① 会社の指定方法", ["既存の会社から選ぶ", "新しい会社を番号から決める"], horizontal=True)
-    
-    selected_target_comp = ""
-    comp_2digit_prefix = ""
-
-    if comp_mode == "既存の会社から選ぶ" and existing_companies:
-        selected_target_comp = st.selectbox("登録先の会社名を選択", existing_companies)
-        m = re.match(r'^(\d{1,2})[:：]', str(selected_target_comp).strip())
-        if m:
-            comp_2digit_prefix = f"{int(m.group(1)):02d}"
-    else:
-        st.markdown("##### 🏢 新しい会社の番号と名前を決める")
-        c_num_col, c_name_col = st.columns([1, 2])
-        
-        with c_num_col:
-            new_comp_code = st.text_input("会社番号(2桁)", value=default_2digit, max_chars=2)
-        with c_name_col:
-            new_comp_raw_name = st.text_input("会社名（例: 木村木材）")
-
-        if new_comp_code:
-            if not new_comp_code.isdigit() or len(new_comp_code) != 2:
-                st.warning("⚠️ 会社番号は半角数字2桁（00〜99）で入力してください。")
-            elif int(new_comp_code) in used_numbers:
-                st.error(f"⚠️ 番号「{new_comp_code}」は既に使われています！別の空き番号を指定してください。")
-            else:
-                st.info(f"💡 番号「{new_comp_code}」は空いています。利用可能です！")
-
-        if new_comp_code and new_comp_raw_name:
-            selected_target_comp = f"{new_comp_code}：{new_comp_raw_name.strip()}"
-            comp_2digit_prefix = new_comp_code
-
-    st.write("---")
-    with st.expander("📷 カメラ撮影 / 画像アップロードで自動入力する", expanded=False):
-        upload_choice = st.radio("入力方法", ["カメラで撮影", "写真をアップロード"], horizontal=True)
-        uploaded_image = None
-        if upload_choice == "カメラで撮影":
-            uploaded_image = st.camera_input("📷 シャッターを押して撮影")
-        else:
-            uploaded_image = st.file_uploader("📁 写真ファイルを選択", type=["jpg", "jpeg", "png"])
-
-        if uploaded_image is not None:
-            st.image(uploaded_image, caption="取り込んだ画像", width=250)
-            if st.button("✨ 画像から車番・ナンバーを読み取る", use_container_width=True):
-                extracted_text = ""
-                try:
-                    import pytesseract
-                    img = Image.open(uploaded_image)
-                    extracted_text = pytesseract.image_to_string(img, lang="jpn+eng")
-                except Exception:
-                    pass
-                
-                nums = re.findall(r'\b\d{1,4}\b', extracted_text)
-                if nums:
-                    st.session_state.scanned_shaban = nums[-1]
-                    st.session_state.scanned_detail = extracted_text.strip().replace("\n", " ")
-                    st.success(f"🔍 読み取り成功！ 車番「{st.session_state.scanned_shaban}」を下に入力しました。")
-                else:
-                    st.info("💡 画像を受け付けました。下のカードで必要項目を確認・入力してください。")
-                st.rerun()
-
-    if selected_target_comp:
-        st.markdown(f"""

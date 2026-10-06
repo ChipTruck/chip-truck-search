@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import openpyxl
 import re
@@ -29,24 +30,9 @@ st.markdown("""
         width: 100% !important;
     }
     
-    /* 鎖マーク（アンカーリンク）を完全に非表示 */
+    /* 鎖マーク（アンカーリンク）を完全に消去 */
     a.anchor-link, [data-testid="stHeaderActionElements"] {
         display: none !important;
-    }
-    
-    /* 検索ボックスの文字サイズと高さ */
-    div[data-testid="stTextInput"] input {
-        font-size: 1.4rem !important;
-        height: 50px !important;
-        font-weight: bold !important;
-        border: 2px solid #1e88e5 !important;
-        border-radius: 8px !important;
-        padding: 0 12px !important;
-    }
-    
-    div[data-testid="stForm"] {
-        border: none !important;
-        padding: 0 !important;
     }
     
     div[data-testid="stHorizontalBlock"] {
@@ -101,21 +87,6 @@ st.markdown("""
         width: 85px;
     }
     </style>
-
-    <!-- iPhoneに本物の数字テンキーを強制表示させる特殊インジェクション -->
-    <img src="x" onerror="
-        function enforceTel(){
-            var inputs = document.querySelectorAll('input[type=text]');
-            for(var i=0; i<inputs.length; i++){
-                inputs[i].type = 'tel';
-                inputs[i].setAttribute('inputmode', 'numeric');
-                inputs[i].setAttribute('pattern', '[0-9]*');
-                inputs[i].setAttribute('autocomplete', 'off');
-            }
-        }
-        enforceTel();
-        setInterval(enforceTel, 400);
-    " style="display:none;"/>
 """, unsafe_allow_html=True)
 
 FILE_PATH = "新_登録車両資料_連動版.xlsx"
@@ -208,9 +179,9 @@ def load_shared_excel_data():
     df = df.sort_values(by=['_comp_num', '車番'], ascending=[True, True], kind='stable').drop(columns=['_comp_num']).reset_index(drop=True)
     return df
 
-# セッション状態
-if "search_query" not in st.session_state:
-    st.session_state.search_query = ""
+# URLクエリパラメータから検索文字を取得
+query_shaban = st.query_params.get("shaban", "")
+
 if "active_card_key" not in st.session_state:
     st.session_state.active_card_key = None
 if "scanned_shaban" not in st.session_state:
@@ -221,14 +192,11 @@ if "action_notice" not in st.session_state:
     st.session_state.action_notice = ""
 if "edit_search_keyword" not in st.session_state:
     st.session_state.edit_search_keyword = ""
-if "form_reset_counter" not in st.session_state:
-    st.session_state.form_reset_counter = 0
 
 def reset_to_home():
-    st.session_state.search_query = ""
-    st.session_state.active_card_key = None
-    st.session_state.action_notice = ""
-    st.session_state.form_reset_counter += 1
+    st.query_params.clear()
+    st.session_state["active_card_key"] = None
+    st.session_state["action_notice"] = ""
 
 def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai):
     wb = openpyxl.load_workbook(FILE_PATH)
@@ -377,30 +345,87 @@ tab1, tab2, tab3 = st.tabs(["🔍 検索", "➕ 新規登録", "✏️ 編集・
 
 # ── 【タブ1】 検索・閲覧 ──
 with tab1:
-    st.markdown("##### 🔍 車番を入力（例: 8, 14, 1351 など）")
+    st.markdown("##### 🔍 車番を入力（タップで数字テンキー起動）")
 
-    form_key = f"search_form_{st.session_state.form_reset_counter}"
-    with st.form(form_key):
-        inp_val = st.text_input(
-            "車番を入力", 
-            value=st.session_state.search_query,
-            placeholder="タップして車番を入力",
-            label_visibility="collapsed"
-        )
-        c_search, c_clear = st.columns(2)
-        submit_search = c_search.form_submit_button("🔍 検索実行", type="primary", use_container_width=True)
-        submit_clear = c_clear.form_submit_button("✕ クリア", use_container_width=True)
+    # iPhoneで確実に数字テンキーが開き、セキュリティで弾かれないネイティブフォーム
+    html_search_form = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {{
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        }}
+        .input-box {{
+            width: 100%;
+            height: 48px;
+            font-size: 1.4rem;
+            font-weight: bold;
+            border: 2px solid #1e88e5;
+            border-radius: 8px;
+            padding: 0 12px;
+            box-sizing: border-box;
+            outline: none;
+            margin-bottom: 8px;
+        }}
+        .btn-group {{
+            display: flex;
+            gap: 8px;
+            width: 100%;
+        }}
+        .btn-submit {{
+            flex: 1;
+            height: 46px;
+            background-color: #1e88e5;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.05rem;
+            font-weight: bold;
+            cursor: pointer;
+        }}
+        .btn-reset {{
+            flex: 1;
+            height: 46px;
+            background-color: #f1f3f4;
+            color: #333;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            font-size: 1.05rem;
+            font-weight: bold;
+            cursor: pointer;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }}
+    </style>
+    </head>
+    <body>
+        <form method="GET" target="_top">
+            <input 
+                class="input-box"
+                type="tel" 
+                name="shaban"
+                inputmode="numeric" 
+                pattern="[0-9]*" 
+                placeholder="車番を入力 (例: 1351)" 
+                value="{query_shaban}"
+            />
+            <div class="btn-group">
+                <button type="submit" class="btn-submit">🔍 検索実行</button>
+                <a href="?" target="_top" class="btn-reset">✕ クリア</a>
+            </div>
+        </form>
+    </body>
+    </html>
+    """
+    components.html(html_search_form, height=115)
 
-        if submit_search:
-            st.session_state.search_query = inp_val.strip()
-            st.session_state.active_card_key = None
-            st.rerun()
-
-        if submit_clear:
-            reset_to_home()
-            st.rerun()
-
-    current_search = st.session_state.search_query.strip()
+    current_search = query_shaban.strip()
     filtered_df = df_base.copy()
     is_searched = bool(current_search)
 
@@ -542,146 +567,3 @@ with tab2:
 
     if selected_target_comp:
         st.markdown(f"""
-        <div class="vehicle-detail-card">
-            <div class="card-title">📝 【{selected_target_comp}】の新規車両カード</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        with st.form("new_vehicle_form_card"):
-            new_shaban = st.text_input(
-                "車番 *必須（重複時はA/B等）", 
-                value=st.session_state.get("scanned_shaban", "")
-            )
-            
-            calc_input_no = f"{comp_2digit_prefix}{new_shaban}" if comp_2digit_prefix and new_shaban else ""
-            new_input_no = st.text_input("入力番号（会社2桁＋車番）", value=calc_input_no)
-            
-            new_detail = st.text_input(
-                "詳細（例: 岐阜302 も 9418）", 
-                value=st.session_state.get("scanned_detail", "")
-            )
-            new_remark = st.text_input("備考（例: 4t車、大型など）")
-            new_fuutai = st.text_input("風体")
-
-            submitted = st.form_submit_button("💾 この内容で登録を保存", type="primary")
-            if submitted:
-                if not new_shaban:
-                    st.error("⚠️ 車番を入力してください！")
-                else:
-                    try:
-                        insert_vehicle_record(
-                            selected_target_comp,
-                            new_shaban,
-                            new_input_no,
-                            new_detail,
-                            new_remark,
-                            new_fuutai
-                        )
-                        st.session_state.scanned_shaban = ""
-                        st.session_state.scanned_detail = ""
-                        st.session_state.action_notice = f"🎉 会社「{selected_target_comp}」に 車番「{new_shaban}」を追加しました！PC・スマホ共に反映されています。"
-                        st.toast("✅ 登録が完了しました！")
-                        st.rerun()
-                    except Exception as ex:
-                        st.error(f"⚠️ 保存中にエラーが発生しました: {ex}")
-
-# ── 【タブ3】 編集・削除 ──
-with tab3:
-    st.subheader("✏️ 車両情報の編集・削除")
-
-    if st.session_state.action_notice:
-        st.success(st.session_state.action_notice)
-        st.session_state.action_notice = ""
-
-    st.write("車番、会社名、入力番号、詳細（ナンバー）のいずれかで検索できます。")
-
-    empty_shaban_count = 0
-    for _, r in df_base.iterrows():
-        if not safe_str(r.get('車番', '')):
-            empty_shaban_count += 1
-
-    if empty_shaban_count > 0:
-        if st.button(f"⚠️ 車番が未入力の車両（{empty_shaban_count}台）を抽出する", use_container_width=True):
-            st.session_state.edit_search_keyword = "車番未設定"
-
-    edit_search_val = st.text_input(
-        "🔍 検索キーワード（例: 8、細川、058、吉田 など）", 
-        value=st.session_state.get("edit_search_keyword", ""),
-        key="edit_search_input_box"
-    )
-    st.session_state.edit_search_keyword = edit_search_val
-
-    if edit_search_val:
-        s_term = edit_search_val.strip()
-        
-        matched_indices = []
-        if s_term == "車番未設定":
-            for idx, r in df_base.iterrows():
-                if not safe_str(r.get('車番', '')):
-                    matched_indices.append(idx)
-        else:
-            for idx, r in df_base.iterrows():
-                shaban_str = safe_str(r.get('車番', ''))
-                comp_str = safe_str(r.get('会社名', ''))
-                inp_str = safe_str(r.get('入力番号', ''))
-                detail_str = safe_str(r.get('詳細', ''))
-                
-                if (s_term.lower() in shaban_str.lower() or 
-                    s_term.lower() in comp_str.lower() or 
-                    s_term.lower() in inp_str.lower() or 
-                    s_term.lower() in detail_str.lower()):
-                    matched_indices.append(idx)
-
-        matched = df_base.loc[matched_indices] if matched_indices else pd.DataFrame()
-
-        if len(matched) > 0:
-            car_choices = []
-            for _, r in matched.iterrows():
-                c_shaban = safe_str(r.get('車番', '')) or '(車番未設定)'
-                c_comp = safe_str(r.get('会社名', ''))
-                c_inp = safe_str(r.get('入力番号', ''))
-                c_detail = safe_str(r.get('詳細', ''))
-                car_choices.append(f"🚗 車番: {c_shaban} | {c_comp} (入力番号: {c_inp} / 詳細: {c_detail})")
-
-            selected_edit_car = st.selectbox("対象の車両を決定してください", car_choices)
-            
-            edit_idx = car_choices.index(selected_edit_car)
-            target_edit_row = matched.iloc[edit_idx]
-            target_old_comp = safe_str(target_edit_row.get('会社名', ''))
-            target_old_shaban = safe_str(target_edit_row.get('車番', ''))
-            target_old_input_no = safe_str(target_edit_row.get('入力番号', ''))
-
-            st.markdown(f"""
-            <div class="vehicle-detail-card">
-                <div class="card-title">✏️️ 車両編集・削除カード: {target_old_shaban or '（車番未設定）'}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-            with st.form("card_edit_form"):
-                e_comp = st.text_input("会社名", value=target_old_comp)
-                e_shaban = st.text_input("車番（ここに番号を入力）", value=target_old_shaban)
-                e_input = st.text_input("入力番号", value=target_old_input_no)
-                e_detail = st.text_input("詳細", value=safe_str(target_edit_row.get('詳細', '')))
-                e_remark = st.text_input("備考", value=safe_str(target_edit_row.get('備考', '')))
-                e_fuutai = st.text_input("風体", value=safe_str(target_edit_row.get('風体', '')))
-
-                c1, c2 = st.columns(2)
-                save_clicked = c1.form_submit_button("🔄 変更を保存", type="primary")
-                del_clicked = c2.form_submit_button("🗑 この車両を削除")
-
-                if save_clicked:
-                    update_vehicle_record(
-                        target_old_comp, target_old_shaban, target_old_input_no,
-                        e_comp, e_shaban, e_input, e_detail, e_remark, e_fuutai
-                    )
-                    st.session_state.action_notice = f"✅ 車両情報（車番「{e_shaban}」）の内容を更新・保存しました！"
-                    st.toast("✅ 変更を保存しました！")
-                    st.rerun()
-
-                if del_clicked:
-                    delete_vehicle_record(target_old_comp, target_old_shaban, target_old_input_no)
-                    st.session_state.action_notice = f"🗑 会社「{target_old_comp}」の車両を完全に消去しました！"
-                    st.toast("🗑 データを消去しました！")
-                    st.rerun()
-        else:
-            st.info("該当する車両が見つかりませんでした。別のキーワード（会社名や詳細など）をお試しください。")

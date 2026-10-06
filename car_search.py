@@ -78,11 +78,21 @@ st.markdown("""
 FILE_PATH = "新_登録車両資料_連動版.xlsx"
 SHEET_NAME = "新_登録車両資料"
 
+# 安全な文字列変換関数（floatやNaN、Noneを完全排除）
+def safe_str(val):
+    if pd.isna(val) or val is None:
+        return ""
+    s = str(val).strip()
+    if s.lower() in ["none", "nan", "<na>"]:
+        return ""
+    return s
+
 # 文字列の表記ゆれ統一
 def normalize_text(text):
-    if not text or str(text).lower() in ["none", "nan"]:
+    s = safe_str(text)
+    if not s:
         return ""
-    t = str(text).replace("：", ":").replace(" ", "").replace(" ", "")
+    t = s.replace("：", ":").replace(" ", "").replace(" ", "")
     return t.strip()
 
 # データの初期ロード処理
@@ -102,7 +112,7 @@ def load_raw_data():
     current_comp = ""
     
     for _, row in raw_df.iterrows():
-        row_vals = [str(val).strip() for val in row.values if pd.notna(val) and str(val).strip() not in ["nan", "None"]]
+        row_vals = [safe_str(val) for val in row.values if safe_str(val)]
         row_text = " ".join(row_vals)
         
         if ":" in row_text or "：" in row_text:
@@ -113,7 +123,7 @@ def load_raw_data():
             continue 
         
         if current_comp and len(row_vals) > 0:
-            padded = list(row.values)
+            padded = [safe_str(v) for v in row.values]
             new_row = [current_comp] + padded
             processed_rows.append(new_row)
 
@@ -130,7 +140,7 @@ def load_raw_data():
     padded_rows = []
     for r in processed_rows:
         while len(r) < len(columns):
-            r.append(pd.NA)
+            r.append("")
         padded_rows.append(r)
         
     df = pd.DataFrame(padded_rows, columns=columns[:len(padded_rows[0])] if padded_rows else columns)
@@ -145,8 +155,10 @@ def load_raw_data():
         if c not in df.columns:
             df[c] = ""
             
-    # "None" や "nan" を空白に置換
-    df = df.replace(["None", "nan", "<NA>"], "")
+    # 全列を完全に文字列型かつ不要文字除去で統一
+    for col in df.columns:
+        df[col] = df[col].apply(safe_str)
+        
     return df
 
 # アプリ全体で共有するデータ
@@ -181,12 +193,12 @@ def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai)
     df = st.session_state.app_df.copy()
     
     new_data = {
-        '会社名': str(company_str).strip(),
-        '車番': str(shaban).strip(),
-        '入力番号': str(input_no).strip(),
-        '詳細': str(detail).strip() if detail else "",
-        '備考': str(remark).strip() if remark else "",
-        '風体': str(fuutai).strip() if fuutai else "",
+        '会社名': safe_str(company_str),
+        '車番': safe_str(shaban),
+        '入力番号': safe_str(input_no),
+        '詳細': safe_str(detail),
+        '備考': safe_str(remark),
+        '風体': safe_str(fuutai),
     }
     for col in df.columns:
         if col not in new_data:
@@ -196,7 +208,7 @@ def insert_vehicle_record(company_str, shaban, input_no, detail, remark, fuutai)
     df = pd.concat([df, new_row_df], ignore_index=True)
 
     def get_comp_code(val):
-        m = re.match(r'^(\d{1,2})', str(val).strip())
+        m = re.match(r'^(\d{1,2})', safe_str(val))
         return int(m.group(1)) if m else 999
 
     df['_comp_num'] = df['会社名'].apply(get_comp_code)
@@ -279,7 +291,7 @@ def delete_vehicle_record(company_str, old_shaban, old_input_no):
     except Exception:
         pass
 
-# 車両情報の更新（車番が空だった場合も確実に一致させる）
+# 車両情報の更新
 def update_vehicle_record(old_company, old_shaban, old_input_no, new_comp, new_shaban, new_input_no, new_detail, new_remark, new_fuutai):
     df = st.session_state.app_df.copy()
     norm_c = normalize_text(old_company)
@@ -291,14 +303,13 @@ def update_vehicle_record(old_company, old_shaban, old_input_no, new_comp, new_s
         r_s = normalize_text(r.get('車番', ''))
         r_inp = normalize_text(r.get('入力番号', ''))
         
-        # 入力番号が一致、または会社名＋車番が一致（旧車番が空の場合も含む）
         if (norm_inp and r_inp == norm_inp) or (r_c == norm_c and (r_s == norm_s or (not norm_s and not r_s))):
-            df.at[idx, '会社名'] = new_comp
-            df.at[idx, '車番'] = new_shaban
-            df.at[idx, '入力番号'] = new_input_no
-            df.at[idx, '詳細'] = new_detail
-            df.at[idx, '備考'] = new_remark
-            df.at[idx, '風体'] = new_fuutai
+            df.at[idx, '会社名'] = safe_str(new_comp)
+            df.at[idx, '車番'] = safe_str(new_shaban)
+            df.at[idx, '入力番号'] = safe_str(new_input_no)
+            df.at[idx, '詳細'] = safe_str(new_detail)
+            df.at[idx, '備考'] = safe_str(new_remark)
+            df.at[idx, '風体'] = safe_str(new_fuutai)
             break
             
     st.session_state.app_df = df
@@ -330,10 +341,10 @@ def update_vehicle_record(old_company, old_shaban, old_input_no, new_comp, new_s
 def generate_upload_csv(df_source):
     rows = []
     for _, r in df_source.iterrows():
-        v_id = str(r.get('入力番号', '')).strip()
-        fuutai_raw = str(r.get('風体', '')).strip()
+        v_id = safe_str(r.get('入力番号', ''))
+        fuutai_raw = safe_str(r.get('風体', ''))
         
-        if v_id and v_id not in ["nan", "None", ""]:
+        if v_id:
             m_fuutai = re.findall(r'\d+', fuutai_raw)
             fuutai_val = m_fuutai[0] if m_fuutai else "0"
             rows.append({
@@ -484,7 +495,7 @@ try:
             st.success(st.session_state.action_notice)
             st.session_state.action_notice = ""
         
-        existing_companies = df_base['会社名'].dropna().unique().tolist() if '会社名' in df_base.columns else []
+        existing_companies = [c for c in df_base['会社名'].dropna().unique().tolist() if safe_str(c)]
         used_numbers = set()
         for c in existing_companies:
             m = re.match(r'^(\d{1,2})[:：]', str(c).strip())
@@ -512,184 +523,3 @@ try:
             
             with c_num_col:
                 new_comp_code = st.text_input("会社番号(2桁)", value=default_2digit, max_chars=2)
-            with c_name_col:
-                new_comp_raw_name = st.text_input("会社名（例: 木村木材）")
-
-            if new_comp_code:
-                if not new_comp_code.isdigit() or len(new_comp_code) != 2:
-                    st.warning("⚠️ 会社番号は半角数字2桁（00〜99）で入力してください。")
-                elif int(new_comp_code) in used_numbers:
-                    st.error(f"⚠️ 番号「{new_comp_code}」は既に使われています！別の空き番号を指定してください。")
-                else:
-                    st.info(f"💡 番号「{new_comp_code}」は空いています。利用可能です！")
-
-            if new_comp_code and new_comp_raw_name:
-                selected_target_comp = f"{new_comp_code}：{new_comp_raw_name.strip()}"
-                comp_2digit_prefix = new_comp_code
-
-        # カメラ撮影 / 写真スキャン
-        st.write("---")
-        with st.expander("📷 カメラ撮影 / 画像アップロードで自動入力する", expanded=False):
-            upload_choice = st.radio("入力方法", ["カメラで撮影", "写真をアップロード"], horizontal=True)
-            uploaded_image = None
-            if upload_choice == "カメラで撮影":
-                uploaded_image = st.camera_input("📷 シャッターを押して撮影")
-            else:
-                uploaded_image = st.file_uploader("📁 写真ファイルを選択", type=["jpg", "jpeg", "png"])
-
-            if uploaded_image is not None:
-                st.image(uploaded_image, caption="取り込んだ画像", width=250)
-                if st.button("✨ 画像から車番・ナンバーを読み取る", use_container_width=True):
-                    extracted_text = ""
-                    try:
-                        import pytesseract
-                        img = Image.open(uploaded_image)
-                        extracted_text = pytesseract.image_to_string(img, lang="jpn+eng")
-                    except Exception:
-                        pass
-                    
-                    nums = re.findall(r'\b\d{1,4}\b', extracted_text)
-                    if nums:
-                        st.session_state.scanned_shaban = nums[-1]
-                        st.session_state.scanned_detail = extracted_text.strip().replace("\n", " ")
-                        st.success(f"🔍 読み取り成功！ 車番「{st.session_state.scanned_shaban}」を下に入力しました。")
-                    else:
-                        st.info("💡 画像を受け付けました。下のカードで必要項目を確認・入力してください。")
-                    st.rerun()
-
-        # 新規車両カード入力
-        if selected_target_comp:
-            st.markdown(f"""
-            <div class="vehicle-detail-card">
-                <div class="card-title">📝 【{selected_target_comp}】の新規車両カード</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-            with st.form("new_vehicle_form_card"):
-                new_shaban = st.text_input(
-                    "車番 *必須（重複時はA/B等）", 
-                    value=st.session_state.get("scanned_shaban", "")
-                )
-                
-                calc_input_no = f"{comp_2digit_prefix}{new_shaban}" if comp_2digit_prefix and new_shaban else ""
-                new_input_no = st.text_input("入力番号（会社2桁＋車番）", value=calc_input_no)
-                
-                new_detail = st.text_input(
-                    "詳細（例: 岐阜302 も 9418）", 
-                    value=st.session_state.get("scanned_detail", "")
-                )
-                new_remark = st.text_input("備考（例: 4t車、大型など）")
-                new_fuutai = st.text_input("風体")
-
-                submitted = st.form_submit_button("💾 この内容で登録を保存", type="primary")
-                if submitted:
-                    if not new_shaban:
-                        st.error("⚠️️ 車番を入力してください！")
-                    else:
-                        try:
-                            insert_vehicle_record(
-                                selected_target_comp,
-                                new_shaban,
-                                new_input_no,
-                                new_detail,
-                                new_remark,
-                                new_fuutai
-                            )
-                            st.session_state.scanned_shaban = ""
-                            st.session_state.scanned_detail = ""
-                            st.session_state.action_notice = f"🎉 会社「{selected_target_comp}」に 車番「{new_shaban}」を追加しました！チャート表に反映されています。"
-                            st.toast("✅ 登録が完了しました！")
-                            st.rerun()
-                        except Exception as ex:
-                            st.error(f"⚠️ 保存中にエラーが発生しました: {ex}")
-
-    # ── 【タブ3】 編集・削除（会社名・入力番号・詳細でも検索可能！） ──
-    with tab3:
-        st.subheader("✏️ 車両情報の編集・削除")
-
-        if st.session_state.action_notice:
-            st.success(st.session_state.action_notice)
-            st.session_state.action_notice = ""
-
-        st.write("車番、会社名、入力番号、詳細（ナンバー）のいずれかで検索できます。")
-
-        # 未入力・空欄レコードをワンタップで抽出する便利ボタン
-        empty_shaban_count = len(df_base[df_base['車番'].fillna('').astype(str).str.strip() == ''])
-        if empty_shaban_count > 0:
-            if st.button(f"⚠️ 車番が未入力の車両（{empty_shaban_count}台）を抽出する", use_container_width=True):
-                st.session_state.edit_search_keyword = "車番未設定"
-
-        edit_search_val = st.text_input(
-            "🔍 検索キーワード（例: 8、細川、058、吉田 など）", 
-            value=st.session_state.get("edit_search_keyword", ""),
-            key="edit_search_input_box"
-        )
-        st.session_state.edit_search_keyword = edit_search_val
-
-        if edit_search_val:
-            s_term = edit_search_val.strip()
-            
-            if s_term == "車番未設定":
-                matched = df_base[df_base['車番'].fillna('').astype(str).str.strip() == '']
-            else:
-                # 会社名、車番、入力番号、詳細のいずれかにキーワードが含まれるか横断検索！
-                m1 = df_base['車番'].astype(str).str.contains(s_term, case=False, na=False)
-                m2 = df_base['会社名'].astype(str).str.contains(s_term, case=False, na=False)
-                m3 = df_base['入力番号'].astype(str).str.contains(s_term, case=False, na=False)
-                m4 = df_base['詳細'].astype(str).str.contains(s_term, case=False, na=False)
-                matched = df_base[m1 | m2 | m3 | m4]
-
-            if len(matched) > 0:
-                car_choices = []
-                for _, r in matched.iterrows():
-                    c_shaban = r.get('車番', '').strip() or '(車番未設定)'
-                    c_comp = r.get('会社名', '').strip()
-                    c_inp = r.get('入力番号', '').strip()
-                    c_detail = r.get('詳細', '').strip()
-                    car_choices.append(f"🚗 車番: {c_shaban} | {c_comp} (入力番号: {c_inp} / 詳細: {c_detail})")
-
-                selected_edit_car = st.selectbox("対象の車両を決定してください", car_choices)
-                
-                edit_idx = car_choices.index(selected_edit_car)
-                target_edit_row = matched.iloc[edit_idx]
-                target_old_comp = target_edit_row.get('会社名', '')
-                target_old_shaban = target_edit_row.get('車番', '')
-                target_old_input_no = target_edit_row.get('入力番号', '')
-
-                st.markdown(f"""
-                <div class="vehicle-detail-card">
-                    <div class="card-title">✏️ 車両編集・削除カード: {target_old_shaban or '（車番未設定）'}</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                with st.form("card_edit_form"):
-                    e_comp = st.text_input("会社名", value=target_old_comp)
-                    e_shaban = st.text_input("車番（ここに番号を入力）", value=target_old_shaban)
-                    e_input = st.text_input("入力番号", value=target_old_input_no)
-                    e_detail = st.text_input("詳細", value=target_edit_row.get('詳細', ''))
-                    e_remark = st.text_input("備考", value=target_edit_row.get('備考', ''))
-                    e_fuutai = st.text_input("風体", value=target_edit_row.get('風体', ''))
-
-                    c1, c2 = st.columns(2)
-                    save_clicked = c1.form_submit_button("🔄 変更を保存", type="primary")
-                    del_clicked = c2.form_submit_button("🗑 この車両を削除")
-
-                    if save_clicked:
-                        update_vehicle_record(
-                            target_old_comp, target_old_shaban, target_old_input_no,
-                            e_comp, e_shaban, e_input, e_detail, e_remark, e_fuutai
-                        )
-                        st.session_state.action_notice = f"✅ 車両情報（車番「{e_shaban}」）の内容を更新・保存しました！"
-                        st.toast("✅ 変更を保存しました！")
-                        st.rerun()
-
-                    if del_clicked:
-                        delete_vehicle_record(target_old_comp, target_old_shaban, target_old_input_no)
-                        st.session_state.action_notice = f"🗑 会社「{target_old_comp}」の車両を完全に消去しました！"
-                        st.toast("🗑 データを消去しました！")
-                        st.rerun()
-            else:
-                st.info("該当する車両が見つかりませんでした。別のキーワード（会社名や詳細など）をお試しください。")
-
-except Exception as e:
-    st.error(f"エラーが発生しました: {e}")
